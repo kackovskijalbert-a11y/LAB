@@ -2,41 +2,50 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>КПП — Автосканер</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>КПП — Контроль доступа</title>
   
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #070d19; color: #fff; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background: #0b0f19; color: #f1f5f9; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
 
     /* Шапка */
     .top-bar {
-      padding: 10px 14px;
-      background: #0f172a;
+      padding: env(safe-area-inset-top, 12px) 16px 12px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid #1e293b;
-      z-index: 10;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      z-index: 20;
     }
-    .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #38bdf8; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
-    .header-actions { display: flex; gap: 6px; }
+    .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #94a3b8; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+    .header-actions { display: flex; gap: 8px; }
+    
     .btn-icon {
-      background: #1e293b;
-      color: #cbd5e1;
-      border: 1px solid #334155;
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #e2e8f0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
     }
-    .btn-manual { background: #059669; color: #fff; border-color: #10b981; }
-    .btn-list { background: #3b82f6; color: #fff; border-color: #60a5fa; }
+    .btn-icon:active { transform: scale(0.96); background: rgba(255, 255, 255, 0.12); }
+    .btn-manual { background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
+    .btn-list { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
 
     /* Видоискатель */
     .camera-viewport {
@@ -55,189 +64,348 @@
       width: 86%;
       max-width: 360px;
       aspect-ratio: 52 / 11.2;
-      border: 3px solid #38bdf8;
-      border-radius: 8px;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7);
+      border: 2px solid #38bdf8;
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.72);
       pointer-events: none;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.2s ease;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .plate-target.granted { border-color: #22c55e; box-shadow: 0 0 25px rgba(34, 197, 94, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
-    .plate-target.exit { border-color: #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
-    .plate-target.denied { border-color: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
+    .plate-target.granted { border-color: #22c55e; box-shadow: 0 0 25px rgba(34, 197, 94, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72); }
+    .plate-target.exit { border-color: #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72); }
+    .plate-target.denied { border-color: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72); }
 
     .target-hint {
       position: absolute;
-      bottom: -28px;
-      font-size: 12px;
-      letter-spacing: 0.5px;
+      bottom: -32px;
+      font-size: 11px;
+      letter-spacing: 1px;
       color: #94a3b8;
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 700;
     }
 
-    /* Карточка информации */
+    /* Нижняя карточка */
     .bottom-sheet {
-      background: #0f172a;
-      padding: 14px 16px;
-      border-top: 1px solid #1e293b;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(16px);
+      padding: 16px 18px calc(env(safe-area-inset-bottom, 16px) + 8px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
 
     .vehicle-card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 12px 14px;
-      min-height: 96px;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 14px 16px;
+      min-height: 94px;
       display: flex;
       flex-direction: column;
       justify-content: center;
+      gap: 4px;
     }
 
     .plate-title {
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 900;
-      letter-spacing: 3px;
+      letter-spacing: 2px;
       font-family: monospace;
       color: #f8fafc;
     }
 
-    .vehicle-owner { font-size: 15px; font-weight: 700; color: #38bdf8; margin-top: 2px; }
+    .vehicle-owner { font-size: 15px; font-weight: 700; color: #38bdf8; }
     .vehicle-desc { font-size: 13px; color: #94a3b8; }
-    .vehicle-time { font-size: 12px; color: #cbd5e1; margin-top: 4px; font-weight: 600; }
+    .vehicle-time { font-size: 12px; color: #cbd5e1; font-weight: 500; }
 
     .tag-status {
       display: inline-block;
-      padding: 3px 8px;
-      border-radius: 4px;
+      padding: 4px 10px;
+      border-radius: 8px;
       font-size: 11px;
       font-weight: 800;
-      margin-top: 6px;
+      margin-top: 4px;
       width: fit-content;
+      letter-spacing: 0.5px;
       text-transform: uppercase;
     }
-    .tag-granted { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
-    .tag-exit { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
-    .tag-denied { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+    .tag-granted { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .tag-exit { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .tag-denied { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
 
     .btn-capture {
-      background: #2563eb;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
       color: #fff;
       border: none;
       padding: 16px;
-      border-radius: 8px;
-      font-size: 17px;
+      border-radius: 14px;
+      font-size: 16px;
       font-weight: 800;
       letter-spacing: 1px;
       cursor: pointer;
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
     }
+    .btn-capture:active { transform: scale(0.98); }
     .btn-capture:disabled { opacity: 0.5; }
 
-    /* Модалки */
+    /* Шторка списка iOS Style */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.85);
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
+      align-items: flex-end;
       z-index: 100;
     }
     .modal-overlay.open { display: flex; }
     
-    .modal-content {
-      background: #1e293b;
+    .sheet-modal {
+      background: #131b2e;
       width: 100%;
-      max-width: 440px;
-      border-radius: 12px;
-      border: 1px solid #334155;
-      padding: 18px;
+      border-radius: 24px 24px 0 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 12px 18px calc(env(safe-area-inset-bottom, 20px) + 12px);
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      max-height: 85vh;
+      gap: 14px;
+      max-height: 88vh;
+      animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .modal-content input[type="text"] {
-      background: #0f172a;
-      border: 1px solid #334155;
-      color: #fff;
-      padding: 12px;
-      border-radius: 6px;
-      font-size: 15px;
-    }
-    .modal-content input[type="text"]:focus { border-color: #38bdf8; outline: none; }
-    .btn-submit { background: #059669; color: #fff; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; }
 
-    .list-header-bar {
+    @keyframes slideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    .sheet-handle {
+      width: 40px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      margin: 0 auto 4px;
+    }
+
+    .sheet-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
     }
-    .btn-excel-import {
-      background: #047857;
-      color: #fff;
-      border: 1px solid #10b981;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
+    .sheet-title {
+      font-size: 17px;
       font-weight: 700;
-      cursor: pointer;
+      color: #fff;
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 8px;
+    }
+    .badge-counter {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
     }
 
-    /* Список авто */
+    .sheet-controls { display: flex; gap: 8px; align-items: center; }
+
+    .btn-import-pill {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .btn-close-circle {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .search-input-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .search-input-box input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+    }
+    .search-input-box input:focus { border-color: #38bdf8; outline: none; background: rgba(255, 255, 255, 0.08); }
+
+    /* Карточки авто */
     .plate-list-container {
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding-right: 4px;
+      gap: 10px;
+      padding-bottom: 8px;
     }
-    .plate-item {
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 10px 12px;
+
+    .car-row-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 16px;
+      padding: 12px 14px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
     }
-    .plate-item-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow: hidden; }
-    .plate-item-number { font-size: 16px; font-weight: 800; font-family: monospace; letter-spacing: 1px; display: flex; align-items: center; gap: 6px; }
-    .plate-item-sub { font-size: 12px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    
-    .badge-inside { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; font-family: sans-serif; font-weight: 700; }
-    .badge-outside { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid #475569; font-family: sans-serif; font-weight: 600; }
 
-    .item-controls { display: flex; align-items: center; gap: 6px; }
-    .btn-toggle-pass {
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 11px;
+    .car-info-col {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .car-header-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Реалистичный российский номерной знак */
+    .plate-badge-rus {
+      background: #ffffff;
+      color: #000000;
+      border: 1.5px solid #000000;
+      border-radius: 5px;
+      padding: 1px 7px;
+      font-family: -apple-system, monospace;
+      font-weight: 900;
+      font-size: 14px;
+      letter-spacing: 1px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .status-dot-pill {
+      font-size: 10px;
       font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .pill-inside { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .pill-outside { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); }
+
+    .car-sub-text {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e2e8f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .car-time-text {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .car-actions-col {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .btn-status-pill {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 800;
       border: none;
       cursor: pointer;
+      letter-spacing: 0.4px;
+      transition: all 0.15s;
     }
-    .btn-toggle-pass.active { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
-    .btn-toggle-pass.inactive { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
-
-    .btn-delete {
+    .btn-status-pill.active {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+    .btn-status-pill.inactive {
       background: rgba(239, 68, 68, 0.15);
-      border: 1px solid #ef4444;
       color: #f87171;
-      padding: 6px 8px;
-      border-radius: 6px;
-      font-size: 13px;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-trash-icon {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #f87171;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    /* Модалка добавления авто */
+    .center-modal {
+      background: #1e293b;
+      width: 100%;
+      max-width: 380px;
+      margin: auto 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .center-modal input {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 13px;
+      border-radius: 10px;
+      font-size: 15px;
+    }
+    .btn-modal-save {
+      background: #059669;
+      color: #fff;
+      border: none;
+      padding: 14px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 15px;
       cursor: pointer;
     }
 
@@ -279,37 +447,44 @@
     <button class="btn-capture" id="scanBtn" onclick="scanAutoPlate()">СКАНИРОВАТЬ</button>
   </div>
 
-  <!-- Модалка ручного добавления одного авто -->
-  <div class="modal-overlay" id="modal">
-    <div class="modal-content">
-      <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
-        Внести автомобиль
-        <span style="cursor:pointer; color:#94a3b8;" onclick="closeModal()">✕</span>
-      </h3>
-      <input type="text" id="mPlate" placeholder="Номер (напр. А123ВС777)" autocapitalize="characters">
-      <input type="text" id="mOwner" placeholder="ФИО водителя / пассажира">
-      <input type="text" id="mModel" placeholder="Марка авто и роль (VIP, подрядчик)">
-      <button class="btn-submit" id="saveBtn" onclick="saveToCloud()">ДОБАВИТЬ В ОБЛАКО</button>
+  <!-- Модалка добавления -->
+  <div class="modal-overlay" id="modal" style="align-items: center; justify-content: center;">
+    <div class="center-modal">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="font-size: 17px;">Внести автомобиль</h3>
+        <button class="btn-close-circle" onclick="closeModal()">✕</button>
+      </div>
+      <input type="text" id="mPlate" placeholder="Номер (напр. С640УК69)" autocapitalize="characters">
+      <input type="text" id="mOwner" placeholder="ФИО владельца">
+      <input type="text" id="mModel" placeholder="Марка авто и категория">
+      <button class="btn-modal-save" id="saveBtn" onclick="saveToCloud()">Сохранить в базу</button>
     </div>
   </div>
 
-  <!-- Модалка реестра и импорта Excel -->
-  <div class="modal-overlay" id="listModal">
-    <div class="modal-content">
-      <div class="list-header-bar">
-        <h3 style="font-size: 16px;">
-          <span>Внутри: <b id="onSiteCount" style="color: #4ade80;">0</b> из <span id="counterSpan">0</span></span>
-        </h3>
-        <div style="display: flex; gap: 8px; align-items: center;">
+  <!-- Шторка реестра авто -->
+  <div class="modal-overlay" id="listModal" onclick="handleBackdropClick(event)">
+    <div class="sheet-modal">
+      <div class="sheet-handle"></div>
+      
+      <div class="sheet-header">
+        <div class="sheet-title">
+          Реестр авто
+          <span class="badge-counter" id="onSiteBadge">Внутри: 0 из 0</span>
+        </div>
+        <div class="sheet-controls">
           <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)">
-          <button class="btn-excel-import" id="importBtn" onclick="document.getElementById('excelFileInput').click()">
-            📂 Excel
+          <button class="btn-import-pill" id="importBtn" onclick="document.getElementById('excelFileInput').click()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Excel
           </button>
-          <span style="cursor:pointer; font-size: 18px; color:#94a3b8;" onclick="closeListModal()">✕</span>
+          <button class="btn-close-circle" onclick="closeListModal()">✕</button>
         </div>
       </div>
 
-      <input type="text" id="searchInput" placeholder="Быстрый поиск по номеру или ФИО..." oninput="renderFilteredList()">
+      <div class="search-input-box">
+        <input type="text" id="searchInput" placeholder="Поиск по номеру, имени, марке..." oninput="renderFilteredList()">
+      </div>
+
       <div class="plate-list-container" id="plateListContainer"></div>
     </div>
   </div>
@@ -328,7 +503,6 @@
     let torchActive = false;
 
     const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
-
     const CHAR_CONVERT = {
       'A':'А', 'B':'В', 'E':'Е', 'K':'К', 'M':'М', 'H':'Н',
       'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
@@ -350,16 +524,12 @@
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          }
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
         });
         v.srcObject = stream;
         videoTrack = stream.getVideoTracks()[0];
       } catch (err) {
-        alert("Ошибка камеры. Проверьте разрешения в браузере.");
+        alert("Предоставьте доступ к камере в настройках браузера.");
       }
     }
 
@@ -367,7 +537,7 @@
       if (!videoTrack) return;
       const capabilities = videoTrack.getCapabilities();
       if (!capabilities.torch) {
-        alert("Вспышка не поддерживается");
+        alert("Вспышка недоступна");
         return;
       }
       torchActive = !torchActive;
@@ -378,16 +548,17 @@
     function formatTime(isoStr) {
       if (!isoStr) return '';
       const d = new Date(isoStr);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     async function initCloud() {
-      syncText.innerText = "Загрузка...";
+      syncText.innerText = "Связь...";
       const { data, error } = await db.from('plates').select('*').order('created_at', { ascending: false });
       
       if (error) {
-        syncText.innerText = "Офлайн-режим";
+        syncText.innerText = "Офлайн";
         dot.style.background = "#ef4444";
+        dot.style.boxShadow = "0 0 10px #ef4444";
         return;
       }
 
@@ -395,7 +566,6 @@
       data.forEach(item => { CARS_DB[item.plate] = item; });
       updateStatusHeader();
 
-      // Realtime
       db.channel('realtime:plates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
           if (payload.eventType === 'DELETE') {
@@ -427,9 +597,8 @@
       const items = Object.values(CARS_DB);
       const total = items.length;
       const inside = items.filter(x => x.is_inside).length;
-      syncText.innerText = `В базе: ${total} | Внутри: ${inside}`;
-      document.getElementById('counterSpan').innerText = total;
-      document.getElementById('onSiteCount').innerText = inside;
+      syncText.innerText = `База: ${total} • Внутри: ${inside}`;
+      document.getElementById('onSiteBadge').innerText = `Внутри: ${inside} из ${total}`;
     }
 
     function sanitizePlate(raw) {
@@ -455,7 +624,6 @@
       const ctx = c.getContext('2d');
       ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-      // Otsu бинаризация
       const imgData = ctx.getImageData(0, 0, cropW, cropH);
       const d = imgData.data;
       let histogram = new Array(256).fill(0);
@@ -521,8 +689,8 @@
 
       if (!car || !car.pass) {
         target.className = "plate-target denied";
-        ownerView.innerText = car ? car.name : "Автомобиля нет в списках";
-        descView.innerText = car ? (car.role || "Доступ отозван") : "Проезд закрыт";
+        ownerView.innerText = car ? car.name : "Автомобиля нет в реестре";
+        descView.innerText = car ? (car.role || "Допуск закрыт") : "Проезд запрещен";
         timeView.innerText = "";
         statusTag.className = "tag-status tag-denied";
         statusTag.innerText = "ДОСТУП ЗАПРЕЩЕН";
@@ -552,12 +720,12 @@
     function displayCarStatus(car, justTriggered = false) {
       detailsBox.style.display = "block";
       ownerView.innerText = car.name || "Без имени";
-      descView.innerText = `${car.car || '—'} • ${car.role || 'Допуск'}`;
+      descView.innerText = `${car.car && car.car !== '—' ? car.car + ' • ' : ''}${car.role || 'Допуск'}`;
 
       if (car.is_inside) {
         target.className = "plate-target granted";
         statusTag.className = "tag-status tag-granted";
-        statusTag.innerText = justTriggered ? "ВЪЕЗД ЗАФИКСИРОВАН" : "НА ПЛОЩАДКЕ";
+        statusTag.innerText = justTriggered ? "ВЪЕЗД ЗАФИКСИРОВАН" : "НА ТЕРРИТОРИИ";
         timeView.innerText = car.entered_at ? `Заезд: ${formatTime(car.entered_at)}` : "Заезд зафиксирован";
         if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       } else {
@@ -569,14 +737,13 @@
       }
     }
 
-    // Удаление авто из базы
     async function deleteCar(plate) {
-      const confirmed = confirm(`Вы точно хотите удалить автомобиль с номером ${plate} из базы?`);
+      const confirmed = confirm(`Удалить ${plate} из базы данных?`);
       if (!confirmed) return;
 
       const { error } = await db.from('plates').delete().eq('plate', plate);
       if (error) {
-        alert("Ошибка при удалении: " + error.message);
+        alert("Ошибка: " + error.message);
       } else {
         delete CARS_DB[plate];
         updateStatusHeader();
@@ -588,7 +755,6 @@
       }
     }
 
-    // Импорт Excel
     async function handleExcelUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -604,7 +770,7 @@
         const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
 
         if (!rows.length) {
-          alert("Таблица пуста!");
+          alert("Таблица пуста");
           return;
         }
 
@@ -631,23 +797,23 @@
         });
 
         if (!formattedRecords.length) {
-          alert("Не удалось распознать автомобильные номера в файле.");
+          alert("Автомобильные номера не найдены");
           return;
         }
 
         const { error } = await db.from('plates').upsert(formattedRecords, { onConflict: 'plate' });
 
         if (error) {
-          alert("Ошибка импорта в БД: " + error.message);
+          alert("Ошибка: " + error.message);
         } else {
-          alert(`Успешно загружено ${formattedRecords.length} авто!`);
+          alert(`Загружено: ${formattedRecords.length} авто`);
           await initCloud();
           renderFilteredList();
         }
       } catch (err) {
-        alert("Ошибка чтения файла Excel: " + err.message);
+        alert("Ошибка чтения: " + err.message);
       } finally {
-        importBtn.innerText = "📂 Excel";
+        importBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Excel`;
         importBtn.disabled = false;
         event.target.value = '';
       }
@@ -662,6 +828,10 @@
       document.getElementById('listModal').classList.remove('open');
     }
 
+    function handleBackdropClick(e) {
+      if (e.target.id === 'listModal') closeListModal();
+    }
+
     function renderFilteredList() {
       const q = document.getElementById('searchInput').value.trim().toUpperCase();
       const container = document.getElementById('plateListContainer');
@@ -669,34 +839,41 @@
         const p = (item.plate || '').toUpperCase();
         const n = (item.name || '').toUpperCase();
         const r = (item.role || '').toUpperCase();
-        return p.includes(q) || n.includes(q) || r.includes(q);
+        const c = (item.car || '').toUpperCase();
+        return p.includes(q) || n.includes(q) || r.includes(q) || c.includes(q);
       });
 
       if (list.length === 0) {
-        container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 20px;">Ничего не найдено</div>';
+        container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 30px;">Ничего не найдено</div>';
         return;
       }
 
       container.innerHTML = list.map(item => `
-        <div class="plate-item">
-          <div class="plate-item-meta">
-            <div class="plate-item-number">
-              ${item.plate}
-              <span class="${item.is_inside ? 'badge-inside' : 'badge-outside'}">
-                ${item.is_inside ? 'НА ПАРКОВКЕ' : 'ВНЕ ПАРКОВКИ'}
+        <div class="car-row-card">
+          <div class="car-info-col">
+            <div class="car-header-line">
+              <div class="plate-badge-rus">${item.plate}</div>
+              <span class="status-dot-pill ${item.is_inside ? 'pill-inside' : 'pill-outside'}">
+                ${item.is_inside ? 'Внутри' : 'Вне'}
               </span>
             </div>
-            <span class="plate-item-sub">
-              ${item.name || 'Гость'} • ${item.role || '—'}
-              ${item.entered_at ? ` | Заезд: ${formatTime(item.entered_at)}` : ''}
-              ${item.left_at ? ` | Выезд: ${formatTime(item.left_at)}` : ''}
-            </span>
+            <div class="car-sub-text">
+              ${item.name || 'Гость'} ${item.car && item.car !== '—' ? '• ' + item.car : ''} ${item.role ? '• ' + item.role : ''}
+            </div>
+            ${item.entered_at || item.left_at ? `
+              <div class="car-time-text">
+                ${item.entered_at ? 'Заезд: ' + formatTime(item.entered_at) : ''}
+                ${item.left_at ? ' | Выезд: ' + formatTime(item.left_at) : ''}
+              </div>
+            ` : ''}
           </div>
-          <div class="item-controls">
-            <button class="btn-toggle-pass ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
-              ${item.pass ? 'РАЗРЕШЕН' : 'ЗАПРЕЩЕН'}
+          <div class="car-actions-col">
+            <button class="btn-status-pill ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
+              ${item.pass ? 'Допуск' : 'Блок'}
             </button>
-            <button class="btn-delete" title="Удалить" onclick="deleteCar('${item.plate}')">🗑</button>
+            <button class="btn-trash-icon" title="Удалить" onclick="deleteCar('${item.plate}')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            </button>
           </div>
         </div>
       `).join('');
@@ -710,7 +887,7 @@
         renderFilteredList();
         if (plateView.innerText === plate) displayCarStatus(CARS_DB[plate]);
       } else {
-        alert("Ошибка обновления статуса: " + error.message);
+        alert("Ошибка: " + error.message);
       }
     }
 
@@ -725,18 +902,18 @@
 
       const plate = sanitizePlate(pIn.value);
       if (!PLATE_REGEX.test(plate)) {
-        alert("Неверный номер. Формат: А123ВС77 или А123ВС777");
+        alert("Неверный формат номера. Пример: С640УК69");
         return;
       }
 
       saveBtn.disabled = true;
-      saveBtn.innerText = "Запись...";
+      saveBtn.innerText = "Сохранение...";
 
       const now = new Date().toISOString();
       const newRecord = {
         plate: plate,
-        name: oIn.value.trim() || "Внеплановый гость",
-        role: mIn.value.trim() || "Добавлен на КПП",
+        name: oIn.value.trim() || "Гость",
+        role: mIn.value.trim() || "Внеплановый",
         car: "—",
         pass: true,
         is_inside: true,
@@ -745,7 +922,7 @@
 
       const { error } = await db.from('plates').upsert([newRecord], { onConflict: 'plate' });
       saveBtn.disabled = false;
-      saveBtn.innerText = "ДОБАВИТЬ В ОБЛАКО";
+      saveBtn.innerText = "Сохранить в базу";
 
       if (error) {
         alert("Ошибка: " + error.message);
