@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>КПП — Автосканер</title>
   
-  <!-- Supabase, Tesseract и SheetJS для чтения Excel -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -39,7 +38,7 @@
     .btn-manual { background: #059669; color: #fff; border-color: #10b981; }
     .btn-list { background: #3b82f6; color: #fff; border-color: #60a5fa; }
 
-    /* Видоискатель автономера */
+    /* Видоискатель */
     .camera-viewport {
       position: relative;
       flex: 1;
@@ -79,7 +78,7 @@
       font-weight: 600;
     }
 
-    /* Нижняя карточка информации */
+    /* Карточка информации */
     .bottom-sheet {
       background: #0f172a;
       padding: 14px 16px;
@@ -139,7 +138,7 @@
     }
     .btn-capture:disabled { opacity: 0.5; }
 
-    /* Модальные окна */
+    /* Модалки */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -175,7 +174,6 @@
     .modal-content input[type="text"]:focus { border-color: #38bdf8; outline: none; }
     .btn-submit { background: #059669; color: #fff; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; }
 
-    /* Панель действий в списке */
     .list-header-bar {
       display: flex;
       justify-content: space-between;
@@ -212,14 +210,16 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
     }
-    .plate-item-meta { display: flex; flex-direction: column; gap: 2px; }
+    .plate-item-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow: hidden; }
     .plate-item-number { font-size: 16px; font-weight: 800; font-family: monospace; letter-spacing: 1px; display: flex; align-items: center; gap: 6px; }
-    .plate-item-sub { font-size: 12px; color: #94a3b8; }
+    .plate-item-sub { font-size: 12px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     
     .badge-inside { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; font-family: sans-serif; font-weight: 700; }
     .badge-outside { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid #475569; font-family: sans-serif; font-weight: 600; }
 
+    .item-controls { display: flex; align-items: center; gap: 6px; }
     .btn-toggle-pass {
       padding: 6px 10px;
       border-radius: 6px;
@@ -230,6 +230,16 @@
     }
     .btn-toggle-pass.active { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
     .btn-toggle-pass.inactive { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+
+    .btn-delete {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid #ef4444;
+      color: #f87171;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
 
     canvas { display: none; }
     #excelFileInput { display: none; }
@@ -293,7 +303,7 @@
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)">
           <button class="btn-excel-import" id="importBtn" onclick="document.getElementById('excelFileInput').click()">
-            📂 Импорт Excel
+            📂 Excel
           </button>
           <span style="cursor:pointer; font-size: 18px; color:#94a3b8;" onclick="closeListModal()">✕</span>
         </div>
@@ -388,6 +398,20 @@
       // Realtime
       db.channel('realtime:plates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
+          if (payload.eventType === 'DELETE') {
+            const oldPlate = payload.old.plate;
+            if (oldPlate && CARS_DB[oldPlate]) {
+              delete CARS_DB[oldPlate];
+              updateStatusHeader();
+              renderFilteredList();
+              if (plateView.innerText === oldPlate) {
+                plateView.innerText = "НАВЕДИТЕ КАМЕРУ";
+                detailsBox.style.display = "none";
+              }
+            }
+            return;
+          }
+
           const row = payload.new;
           if (row && row.plate) {
             CARS_DB[row.plate] = row;
@@ -545,13 +569,32 @@
       }
     }
 
-    // ИМПОРТ EXCEL / CSV ПРЯМО В ПРИЛОЖЕНИИ
+    // Удаление авто из базы
+    async function deleteCar(plate) {
+      const confirmed = confirm(`Вы точно хотите удалить автомобиль с номером ${plate} из базы?`);
+      if (!confirmed) return;
+
+      const { error } = await db.from('plates').delete().eq('plate', plate);
+      if (error) {
+        alert("Ошибка при удалении: " + error.message);
+      } else {
+        delete CARS_DB[plate];
+        updateStatusHeader();
+        renderFilteredList();
+        if (plateView.innerText === plate) {
+          plateView.innerText = "НАВЕДИТЕ КАМЕРУ";
+          detailsBox.style.display = "none";
+        }
+      }
+    }
+
+    // Импорт Excel
     async function handleExcelUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
       const importBtn = document.getElementById('importBtn');
-      importBtn.innerText = "⏳ Загрузка...";
+      importBtn.innerText = "⏳...";
       importBtn.disabled = true;
 
       try {
@@ -568,7 +611,6 @@
         const formattedRecords = [];
 
         rows.forEach(r => {
-          // Ищем номер среди возможных названий колонок
           const rawPlate = r['plate'] || r['номер'] || r['Номер'] || r['Госномер'] || r['госномер'] || r['НОМЕР'] || Object.values(r)[0];
           const plate = sanitizePlate(rawPlate);
 
@@ -589,11 +631,10 @@
         });
 
         if (!formattedRecords.length) {
-          alert("Не удалось распознать автомобильные номера в файле. Проверьте заголовки колонок.");
+          alert("Не удалось распознать автомобильные номера в файле.");
           return;
         }
 
-        // Пакетная загрузка в Supabase с перезаписью дубликатов (upsert)
         const { error } = await db.from('plates').upsert(formattedRecords, { onConflict: 'plate' });
 
         if (error) {
@@ -606,7 +647,7 @@
       } catch (err) {
         alert("Ошибка чтения файла Excel: " + err.message);
       } finally {
-        importBtn.innerText = "📂 Импорт Excel";
+        importBtn.innerText = "📂 Excel";
         importBtn.disabled = false;
         event.target.value = '';
       }
@@ -651,9 +692,12 @@
               ${item.left_at ? ` | Выезд: ${formatTime(item.left_at)}` : ''}
             </span>
           </div>
-          <button class="btn-toggle-pass ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
-            ${item.pass ? 'РАЗРЕШЕН' : 'ЗАПРЕЩЕН'}
-          </button>
+          <div class="item-controls">
+            <button class="btn-toggle-pass ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
+              ${item.pass ? 'РАЗРЕШЕН' : 'ЗАПРЕЩЕН'}
+            </button>
+            <button class="btn-delete" title="Удалить" onclick="deleteCar('${item.plate}')">🗑</button>
+          </div>
         </div>
       `).join('');
     }
