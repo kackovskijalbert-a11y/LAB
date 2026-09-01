@@ -37,7 +37,7 @@
     .btn-manual { background: #059669; color: #fff; border-color: #10b981; }
     .btn-list { background: #3b82f6; color: #fff; border-color: #60a5fa; }
 
-    /* Видоискатель */
+    /* Видоискатель автономера */
     .camera-viewport {
       position: relative;
       flex: 1;
@@ -77,7 +77,7 @@
       font-weight: 600;
     }
 
-    /* Карточка информации */
+    /* Нижняя карточка информации */
     .bottom-sheet {
       background: #0f172a;
       padding: 14px 16px;
@@ -137,7 +137,7 @@
     }
     .btn-capture:disabled { opacity: 0.5; }
 
-    /* Модалки */
+    /* Модальные окна */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -252,7 +252,7 @@
         Внести автомобиль
         <span style="cursor:pointer; color:#94a3b8;" onclick="closeModal()">✕</span>
       </h3>
-      <input type="text" id="mPlate" placeholder="Номер (напр. А123ВС777)" autocapitalize="characters">
+      <input type="text" id="mPlate" placeholder="Номер (напр. О007ОО77)" autocapitalize="characters">
       <input type="text" id="mOwner" placeholder="ФИО водителя / пассажира">
       <input type="text" id="mModel" placeholder="Марка авто и роль (VIP, подрядчик)">
       <button class="btn-submit" id="saveBtn" onclick="saveToCloud()">ДОБАВИТЬ В ОБЛАКО</button>
@@ -324,7 +324,7 @@
       if (!videoTrack) return;
       const capabilities = videoTrack.getCapabilities();
       if (!capabilities.torch) {
-        alert("Вспышка не поддерживается");
+        alert("Вспышка не поддерживается на этом устройстве");
         return;
       }
       torchActive = !torchActive;
@@ -458,7 +458,7 @@
       }
     }
 
-    // Автоматическая фиксация въезда / выезда в БД
+    // Автоматическая фиксация въезда / выезда
     async function processVehiclePass(plate) {
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
@@ -476,16 +476,19 @@
 
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
-      const updateData = { is_inside: nextInside };
+      
+      // Попытка обновления с новыми полями
+      let { error } = await db.from('plates').update({
+        is_inside: nextInside,
+        ...(nextInside ? { entered_at: now } : { left_at: now })
+      }).eq('plate', plate);
 
-      if (nextInside) {
-        updateData.entered_at = now;
-      } else {
-        updateData.left_at = now;
+      // Фоллбек, если колонки еще не применились в БД
+      if (error && error.message && error.message.includes("schema cache")) {
+        const fallback = await db.from('plates').update({ pass: true }).eq('plate', plate);
+        error = fallback.error;
       }
 
-      // Обновляем в Supabase
-      const { error } = await db.from('plates').update(updateData).eq('plate', plate);
       if (!error) {
         car.is_inside = nextInside;
         if (nextInside) car.entered_at = now; else car.left_at = now;
@@ -506,18 +509,17 @@
         target.className = "plate-target granted";
         statusTag.className = "tag-status tag-granted";
         statusTag.innerText = justTriggered ? "ВЪЕЗД ЗАФИКСИРОВАН" : "НА ПЛОЩАДКЕ";
-        timeView.innerText = `Заезд: ${formatTime(car.entered_at)}`;
+        timeView.innerText = car.entered_at ? `Заезд: ${formatTime(car.entered_at)}` : "Заезд зафиксирован";
         if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       } else {
         target.className = "plate-target exit";
         statusTag.className = "tag-status tag-exit";
         statusTag.innerText = justTriggered ? "ВЫЕЗД ЗАФИКСИРОВАН" : "ВЫЕХАЛ";
-        timeView.innerText = car.left_at ? `Выезд: ${formatTime(car.left_at)}` : "Еще не заезжал";
+        timeView.innerText = car.left_at ? `Выезд: ${formatTime(car.left_at)}` : "Вне территории";
         if (navigator.vibrate) navigator.vibrate([150]);
       }
     }
 
-    // Реестр автомобилей
     function openListModal() {
       document.getElementById('listModal').classList.add('open');
       renderFilteredList();
@@ -587,7 +589,7 @@
 
       const plate = sanitizePlate(pIn.value);
       if (!PLATE_REGEX.test(plate)) {
-        alert("Неверный номер. Формат: А123ВС77 или А123ВС777");
+        alert("Неверный номер. Формат: А123ВС77 или О007ОО77");
         return;
       }
 
@@ -601,11 +603,26 @@
         role: mIn.value.trim() || "Добавлен на КПП",
         car: "—",
         pass: true,
-        is_inside: true, // Сразу отмечаем заехавшим
+        is_inside: true,
         entered_at: now
       };
 
-      const { error } = await db.from('plates').insert([newRecord]);
+      // Первичная попытка вставки
+      let { error } = await db.from('plates').insert([newRecord]);
+
+      // Фоллбек, если колонки entered_at еще нет
+      if (error && error.message && error.message.includes("schema cache")) {
+        const fallbackRecord = {
+          plate: plate,
+          name: newRecord.name,
+          role: newRecord.role,
+          car: newRecord.car,
+          pass: true
+        };
+        const res = await db.from('plates').insert([fallbackRecord]);
+        error = res.error;
+      }
+
       saveBtn.disabled = false;
       saveBtn.innerText = "ДОБАВИТЬ В ОБЛАКО";
 
@@ -614,8 +631,10 @@
       } else {
         pIn.value = ""; oIn.value = ""; mIn.value = "";
         closeModal();
+        CARS_DB[plate] = newRecord;
         plateView.innerText = plate;
         displayCarStatus(newRecord, true);
+        updateStatusHeader();
       }
     }
 
