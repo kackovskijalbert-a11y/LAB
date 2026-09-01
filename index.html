@@ -507,7 +507,7 @@
     <button class="btn-action" id="actionBtn" disabled onclick="executeVehicleAction()">ОЖИДАНИЕ АВТОМОБИЛЯ</button>
   </div>
 
-  <!-- Модалка внесения авто -->
+  <!-- Модалка внесения авто вручную -->
   <div class="modal-overlay" id="modal" style="align-items: center; justify-content: center;">
     <div class="center-modal">
       <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -521,7 +521,7 @@
     </div>
   </div>
 
-  <!-- Шторка реестра авто с табами -->
+  <!-- Шторка реестра авто -->
   <div class="modal-overlay" id="listModal" onclick="handleBackdropClick(event)">
     <div class="sheet-modal">
       <div class="sheet-handle"></div>
@@ -573,13 +573,23 @@
     let torchActive = false;
     let detectedPlate = null;
     let tesseractWorker = null;
-    let activeFilter = 'all'; // 'all' | 'inside' | 'pending'
+    let activeFilter = 'all';
 
     const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
     const CHAR_CONVERT = {
       'A':'А', 'B':'В', 'E':'Е', 'K':'К', 'M':'М', 'H':'Н',
       'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
     };
+
+    // Словарь марок автомобилей для умного автоопределения колонок
+    const KNOWN_BRANDS = [
+      'МЕРСЕДЕС', 'MERCEDES', 'МАЙБАХ', 'MAYBACH', 'СПРИНТЕР', 'SPRINTER',
+      'ТОЙОТА', 'TOYOTA', 'РОЛЛС', 'РОЙС', 'ROLLS', 'ROYCE', 'АУРУС', 'AURUS',
+      'ШЕВРОЛЕ', 'CHEVROLET', 'ТАХО', 'TAHOE', 'КИА', 'KIA', 'GMC', 'YUKON',
+      'ЮКОН', 'HONGQI', 'ХОНЧИ', 'BMW', 'БМВ', 'AUDI', 'АУДИ', 'VOLVO', 'ВОЛЬВО',
+      'LEXUS', 'ЛЕКСУС', 'PORSCHE', 'ПОРШЕ', 'LAND ROVER', 'RANGE ROVER', 'РЕЙНДЖ',
+      'ГАЗЕЛЬ', 'ФОЛЬКСВАГЕН', 'VOLKSWAGEN', 'HYUNDAI', 'ХЕНДАЙ', 'ХЁНДЭ', 'LADA', 'ЛАДА'
+    ];
 
     const v = document.getElementById('v');
     const c = document.getElementById('c');
@@ -869,41 +879,93 @@
       }
     }
 
+    // УМНЫЙ СЕМАНТИЧЕСКИЙ ПАРСЕР ТАБЛИЦЫ EXCEL
     async function handleExcelUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
       const importBtn = document.getElementById('importBtn');
-      importBtn.innerText = "⏳...";
+      importBtn.innerText = "⏳ Анализ...";
       importBtn.disabled = true;
 
       try {
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
-        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+        const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
 
-        if (!rows.length) {
+        if (!rawRows.length) {
           alert("Таблица пуста");
           return;
         }
 
         const formattedRecords = [];
+        const PLATE_REGEX_CHECK = /^[А-ЯA-Z]\d{3}[А-ЯA-Z]{2}\d{2,3}$/;
 
-        rows.forEach(r => {
-          const rawPlate = r['plate'] || r['номер'] || r['Номер'] || r['Госномер'] || r['госномер'] || r['НОМЕР'] || Object.values(r)[0];
-          const plate = sanitizePlate(rawPlate);
+        rawRows.forEach(row => {
+          if (!Array.isArray(row) || row.length === 0) return;
 
-          if (plate && plate.length >= 6) {
-            const name = r['name'] || r['фио'] || r['ФИО'] || r['Водитель'] || r['Имя'] || '';
-            const role = r['role'] || r['роль'] || r['Роль'] || r['Категория'] || 'Пропуск';
-            const car = r['car'] || r['марка'] || r['Марка'] || r['авто'] || r['Автомобиль'] || '—';
-            
+          let foundPlate = '';
+          let plateColIndex = -1;
+
+          // 1. Поиск ячейки с госномером
+          row.forEach((cellVal, idx) => {
+            const sanitized = sanitizePlate(String(cellVal));
+            if (PLATE_REGEX_CHECK.test(sanitized) && !foundPlate) {
+              foundPlate = sanitized;
+              plateColIndex = idx;
+            }
+          });
+
+          // Если в строке обнаружен валидный номер
+          if (foundPlate) {
+            let candidateName = '';
+            let candidateCar = '—';
+            let candidateRole = 'VIP';
+
+            // Собираем остальные текстовые ячейки
+            const otherCells = row
+              .map((c, idx) => ({ val: String(c || '').trim(), idx }))
+              .filter(item => item.idx !== plateColIndex && item.val.length > 0);
+
+            // 2. Ищем ячейку с маркой автомобиля по базе брендов
+            let carCellIdx = -1;
+            for (let item of otherCells) {
+              const upper = item.val.toUpperCase();
+              const isCar = KNOWN_BRANDS.some(brand => upper.includes(brand));
+              if (isCar) {
+                candidateCar = item.val;
+                carCellIdx = item.idx;
+                break;
+              }
+            }
+
+            // 3. Выделяем имя/персону из оставшихся колонок
+            const remainingForName = otherCells.filter(item => item.idx !== carCellIdx);
+            if (remainingForName.length > 0) {
+              // Именем берем первую свободную или наиболее подробную ячейку
+              candidateName = remainingForName[0].val;
+            } else {
+              candidateName = 'Гость';
+            }
+
+            // 4. Определение роли (охрана, водитель, сопровождение)
+            const combinedText = (candidateName + ' ' + candidateCar).toLowerCase();
+            if (combinedText.includes('охран') || combinedText.includes('чоп')) {
+              candidateRole = 'Охрана';
+            } else if (combinedText.includes('водитель') || combinedText.includes('вод.')) {
+              candidateRole = 'С водителем';
+            } else if (combinedText.includes('орг') || combinedText.includes('дир')) {
+              candidateRole = 'Организатор';
+            } else if (combinedText.includes('техн') || combinedText.includes('звук') || combinedText.includes('свет')) {
+              candidateRole = 'Техслужба';
+            }
+
             formattedRecords.push({
-              plate: plate,
-              name: String(name).trim() || 'Гость',
-              role: String(role).trim() || 'Пропуск',
-              car: String(car).trim() || '—',
+              plate: foundPlate,
+              name: candidateName,
+              role: candidateRole,
+              car: candidateCar,
               pass: true,
               is_inside: false
             });
@@ -911,16 +973,16 @@
         });
 
         if (!formattedRecords.length) {
-          alert("Автомобильные номера не найдены");
+          alert("Не удалось распознать автомобильные номера в файле.");
           return;
         }
 
         const { error } = await db.from('plates').upsert(formattedRecords, { onConflict: 'plate' });
 
         if (error) {
-          alert("Ошибка: " + error.message);
+          alert("Ошибка БД: " + error.message);
         } else {
-          alert(`Загружено: ${formattedRecords.length} авто`);
+          alert(`Успешно распознано и загружено: ${formattedRecords.length} автомобилей!`);
           await initCloud();
           renderFilteredList();
         }
@@ -946,7 +1008,6 @@
       if (e.target.id === 'listModal') closeListModal();
     }
 
-    // Переключение табов
     function setListFilter(filter) {
       activeFilter = filter;
       document.getElementById('tabAll').className = 'tab-btn' + (filter === 'all' ? ' active' : '');
@@ -961,14 +1022,12 @@
       
       let list = Object.values(CARS_DB);
 
-      // Фильтрация по статусу
       if (activeFilter === 'inside') {
         list = list.filter(item => item.is_inside);
       } else if (activeFilter === 'pending') {
         list = list.filter(item => !item.is_inside);
       }
 
-      // Фильтрация по поисковой строке
       list = list.filter(item => {
         const p = (item.plate || '').toUpperCase();
         const n = (item.name || '').toUpperCase();
