@@ -24,17 +24,18 @@
     }
     .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #38bdf8; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
-    .header-actions { display: flex; gap: 8px; }
+    .header-actions { display: flex; gap: 6px; }
     .btn-icon {
       background: #1e293b;
       color: #cbd5e1;
       border: 1px solid #334155;
-      padding: 6px 12px;
+      padding: 6px 10px;
       border-radius: 6px;
       font-size: 12px;
       cursor: pointer;
     }
     .btn-manual { background: #059669; color: #fff; border-color: #10b981; }
+    .btn-list { background: #3b82f6; color: #fff; border-color: #60a5fa; }
 
     /* Видоискатель автономера */
     .camera-viewport {
@@ -48,7 +49,6 @@
     }
     video { width: 100%; height: 100%; object-fit: cover; }
 
-    /* ГОСТ-рамка: соотношение ~4.6:1 (520x112 мм) */
     .plate-target {
       position: absolute;
       width: 86%;
@@ -134,7 +134,7 @@
     }
     .btn-capture:disabled { opacity: 0.5; }
 
-    /* Модальное окно */
+    /* Модальные окна */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -142,20 +142,22 @@
       display: none;
       align-items: center;
       justify-content: center;
-      padding: 20px;
+      padding: 16px;
       z-index: 100;
     }
     .modal-overlay.open { display: flex; }
+    
     .modal-content {
       background: #1e293b;
       width: 100%;
-      max-width: 380px;
+      max-width: 420px;
       border-radius: 12px;
       border: 1px solid #334155;
       padding: 18px;
       display: flex;
       flex-direction: column;
       gap: 12px;
+      max-height: 85vh;
     }
     .modal-content input {
       background: #0f172a;
@@ -167,7 +169,39 @@
     }
     .modal-content input:focus { border-color: #38bdf8; outline: none; }
     .btn-submit { background: #059669; color: #fff; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+
+    /* Список авто */
+    .plate-list-container {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 4px;
+    }
+    .plate-item {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .plate-item-meta { display: flex; flex-direction: column; gap: 2px; }
+    .plate-item-number { font-size: 16px; font-weight: 800; font-family: monospace; letter-spacing: 1px; }
+    .plate-item-sub { font-size: 12px; color: #94a3b8; }
     
+    .btn-toggle-pass {
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-toggle-pass.active { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
+    .btn-toggle-pass.inactive { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+
     canvas { display: none; }
   </style>
 </head>
@@ -180,7 +214,8 @@
     </div>
     <div class="header-actions">
       <button class="btn-icon" id="torchBtn" onclick="toggleTorch()">🔦 Свет</button>
-      <button class="btn-icon btn-manual" onclick="openModal()">➕ Вручную</button>
+      <button class="btn-icon btn-list" onclick="openListModal()">📋 Список</button>
+      <button class="btn-icon btn-manual" onclick="openModal()">➕ Авто</button>
     </div>
   </div>
 
@@ -203,7 +238,7 @@
     <button class="btn-capture" id="scanBtn" onclick="scanAutoPlate()">СКАНИРОВАТЬ</button>
   </div>
 
-  <!-- Окно ручного добавления -->
+  <!-- Модалка ручного добавления -->
   <div class="modal-overlay" id="modal">
     <div class="modal-content">
       <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
@@ -217,12 +252,23 @@
     </div>
   </div>
 
+  <!-- Модалка просмотра и поиска по базе авто -->
+  <div class="modal-overlay" id="listModal">
+    <div class="modal-content">
+      <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
+        <span>Реестр авто (<span id="counterSpan">0</span>)</span>
+        <span style="cursor:pointer; color:#94a3b8;" onclick="closeListModal()">✕</span>
+      </h3>
+      <input type="text" id="searchInput" placeholder="Быстрый поиск по номеру или ФИО..." oninput="renderFilteredList()">
+      <div class="plate-list-container" id="plateListContainer">
+        <!-- Заполняется динамически -->
+      </div>
+    </div>
+  </div>
+
   <canvas id="c"></canvas>
 
   <script>
-    // ----------------------------------------------------
-    // НАСТРОЙКИ ОБЛАКА (SUPABASE)
-    // ----------------------------------------------------
     const SUPABASE_URL = 'https://ymabfkywnfaqlxdmxftt.supabase.co';
     const SUPABASE_KEY = 'sb_publishable_6g_a78Bu4-sFHzWAQIRjlw_Fn6J6WVV';
 
@@ -233,10 +279,8 @@
     let videoTrack = null;
     let torchActive = false;
 
-    // Регулярка ГОСТ номеров РФ (А123ВС77 / А123ВС777)
     const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
 
-    // Преобразование дублирующих букв латиницы в кириллицу
     const CHAR_CONVERT = {
       'A':'А', 'B':'В', 'E':'Е', 'K':'К', 'M':'М', 'H':'Н',
       'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
@@ -254,30 +298,27 @@
     const syncText = document.getElementById('syncText');
     const dot = document.getElementById('dot');
 
-    // 1. Инициализация камеры с высоким разрешением и автофокусом
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
             width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            focusMode: { ideal: "continuous" }
+            height: { ideal: 1080 }
           }
         });
         v.srcObject = stream;
         videoTrack = stream.getVideoTracks()[0];
       } catch (err) {
-        alert("Ошибка камеры: откройте страницу по HTTPS. " + err.message);
+        alert("Ошибка камеры. Проверьте разрешения в браузере.");
       }
     }
 
-    // 2. Включение фонарика (Torch) для ночной работы
     async function toggleTorch() {
       if (!videoTrack) return;
       const capabilities = videoTrack.getCapabilities();
       if (!capabilities.torch) {
-        alert("Вспышка не поддерживается вашим браузером");
+        alert("Вспышка не поддерживается");
         return;
       }
       torchActive = !torchActive;
@@ -285,10 +326,9 @@
       document.getElementById('torchBtn').innerText = torchActive ? "💡 Выкл" : "🔦 Свет";
     }
 
-    // 3. Синхронизация с базой Supabase
     async function initCloud() {
       syncText.innerText = "Загрузка...";
-      const { data, error } = await db.from('plates').select('plate, name, role, car, pass');
+      const { data, error } = await db.from('plates').select('*').order('created_at', { ascending: false });
       
       if (error) {
         syncText.innerText = "Офлайн-режим";
@@ -297,29 +337,33 @@
       }
 
       CARS_DB = {};
-      data.forEach(item => {
-        CARS_DB[item.plate] = item;
-      });
-      syncText.innerText = `В базе: ${data.length} авто`;
+      data.forEach(item => { CARS_DB[item.plate] = item; });
+      updateStatusHeader();
 
-      // Realtime-подписка на обновления
+      // Realtime-синхронизация изменений
       db.channel('realtime:plates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
           const row = payload.new;
           if (row && row.plate) {
             CARS_DB[row.plate] = row;
-            syncText.innerText = `В базе: ${Object.keys(CARS_DB).length} авто`;
+            updateStatusHeader();
+            renderFilteredList();
             if (plateView.innerText === row.plate) displayCarStatus(row.plate);
           }
         })
         .subscribe();
     }
 
+    function updateStatusHeader() {
+      const count = Object.keys(CARS_DB).length;
+      syncText.innerText = `В базе: ${count} авто`;
+      document.getElementById('counterSpan').innerText = count;
+    }
+
     function sanitizePlate(raw) {
       return raw.replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
     }
 
-    // 4. Захват, адаптивная бинаризация и распознавание
     async function scanAutoPlate() {
       if (isProcessing) return;
       isProcessing = true;
@@ -329,8 +373,6 @@
 
       const vW = v.videoWidth;
       const vH = v.videoHeight;
-
-      // Вырезаем строго пропорцию автомобильного номера (4.6 : 1)
       const cropW = Math.floor(vW * 0.85);
       const cropH = Math.floor(cropW / 4.6);
       const cropX = Math.floor((vW - cropW) / 2);
@@ -341,10 +383,9 @@
       const ctx = c.getContext('2d');
       ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-      // Адаптивная бинаризация (Оцу) для контрастирования текста
+      // Otsu бинаризация
       const imgData = ctx.getImageData(0, 0, cropW, cropH);
       const d = imgData.data;
-      
       let histogram = new Array(256).fill(0);
       for (let i = 0; i < d.length; i += 4) {
         const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
@@ -352,9 +393,7 @@
         histogram[gray]++;
       }
 
-      // Вычисление оптимального порога Otsu
-      let total = d.length / 4;
-      let sum = 0;
+      let total = d.length / 4, sum = 0;
       for (let t = 0; t < 256; t++) sum += t * histogram[t];
       let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 120;
 
@@ -373,7 +412,6 @@
         }
       }
 
-      // Наложение бинарной маски
       for (let i = 0; i < d.length; i += 4) {
         const val = d[i] > threshold ? 255 : 0;
         d[i] = d[i+1] = d[i+2] = val;
@@ -397,7 +435,7 @@
           detailsBox.style.display = "none";
         }
       } catch (err) {
-        plateView.innerText = "ОШИБКА СКАНИРОВАНИЯ";
+        plateView.innerText = "ОШИБКА";
       } finally {
         isProcessing = false;
         scanBtn.disabled = false;
@@ -405,29 +443,78 @@
       }
     }
 
-    // 5. Вывод статуса автомобиля
     function displayCarStatus(plate) {
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
 
       if (car && car.pass) {
         target.className = "plate-target granted";
-        ownerView.innerText = car.name || "Гость";
+        ownerView.innerText = car.name || "Без имени";
         descView.innerText = `${car.car || '—'} • ${car.role || 'Допуск'}`;
         statusTag.className = "tag-status tag-granted";
         statusTag.innerText = "ВЪЕЗД РАЗРЕШЕН";
         if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       } else {
         target.className = "plate-target denied";
-        ownerView.innerText = "Автомобиля нет в списках";
-        descView.innerText = "Проезд закрыт";
+        ownerView.innerText = car ? car.name : "Автомобиля нет в списках";
+        descView.innerText = car ? (car.role || "Доступ отозван") : "Проезд закрыт";
         statusTag.className = "tag-status tag-denied";
         statusTag.innerText = "ДОСТУП ЗАПРЕЩЕН";
         if (navigator.vibrate) navigator.vibrate(400);
       }
     }
 
-    // 6. Ручное добавление
+    // Управление списком и фильтрацией
+    function openListModal() {
+      document.getElementById('listModal').classList.add('open');
+      renderFilteredList();
+    }
+
+    function closeListModal() {
+      document.getElementById('listModal').classList.remove('open');
+    }
+
+    function renderFilteredList() {
+      const q = document.getElementById('searchInput').value.trim().toUpperCase();
+      const container = document.getElementById('plateListContainer');
+      const list = Object.values(CARS_DB).filter(item => {
+        const p = (item.plate || '').toUpperCase();
+        const n = (item.name || '').toUpperCase();
+        const r = (item.role || '').toUpperCase();
+        return p.includes(q) || n.includes(q) || r.includes(q);
+      });
+
+      if (list.length === 0) {
+        container.innerHTML = '<div style="color: #64748b; font-size: 13px; text-align: center; padding: 20px;">Ничего не найдено</div>';
+        return;
+      }
+
+      container.innerHTML = list.map(item => `
+        <div class="plate-item">
+          <div class="plate-item-meta">
+            <span class="plate-item-number">${item.plate}</span>
+            <span class="plate-item-sub">${item.name || 'Гость'} • ${item.role || '—'}</span>
+          </div>
+          <button class="btn-toggle-pass ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
+            ${item.pass ? 'РАЗРЕШЕН' : 'ЗАПРЕЩЕН'}
+          </button>
+        </div>
+      `).join('');
+    }
+
+    // Быстрое переключение статуса пропуска прямо из списка
+    async function togglePassStatus(plate, currentPass) {
+      const nextPass = !currentPass;
+      const { error } = await db.from('plates').update({ pass: nextPass }).eq('plate', plate);
+      if (!error) {
+        CARS_DB[plate].pass = nextPass;
+        renderFilteredList();
+        if (plateView.innerText === plate) displayCarStatus(plate);
+      } else {
+        alert("Ошибка обновления статуса: " + error.message);
+      }
+    }
+
     function openModal() { document.getElementById('modal').classList.add('open'); }
     function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
