@@ -11,7 +11,7 @@
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background: #0b0f19; color: #f1f5f9; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+    body { background: #070b14; color: #f1f5f9; display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
 
     /* Шапка */
     .top-bar {
@@ -59,6 +59,7 @@
     }
     video { width: 100%; height: 100%; object-fit: cover; }
 
+    /* Рамка распознавания с плавной пульсацией */
     .plate-target {
       position: absolute;
       width: 86%;
@@ -73,9 +74,33 @@
       justify-content: center;
       transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .plate-target.granted { border-color: #22c55e; box-shadow: 0 0 25px rgba(34, 197, 94, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72); }
-    .plate-target.exit { border-color: #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72); }
-    .plate-target.denied { border-color: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72); }
+
+    @keyframes pulseGreen {
+      0% {
+        border-color: #22c55e;
+        box-shadow: 0 0 15px rgba(34, 197, 94, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72);
+      }
+      50% {
+        border-color: #4ade80;
+        box-shadow: 0 0 35px rgba(74, 222, 128, 0.9), 0 0 0 9999px rgba(0, 0, 0, 0.72);
+      }
+      100% {
+        border-color: #22c55e;
+        box-shadow: 0 0 15px rgba(34, 197, 94, 0.5), 0 0 0 9999px rgba(0, 0, 0, 0.72);
+      }
+    }
+
+    .plate-target.granted {
+      animation: pulseGreen 1.1s infinite ease-in-out;
+    }
+    .plate-target.exit {
+      border-color: #38bdf8;
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.7), 0 0 0 9999px rgba(0, 0, 0, 0.72);
+    }
+    .plate-target.denied {
+      border-color: #ef4444;
+      box-shadow: 0 0 30px rgba(239, 68, 68, 0.7), 0 0 0 9999px rgba(0, 0, 0, 0.72);
+    }
 
     .target-hint {
       position: absolute;
@@ -85,9 +110,10 @@
       color: #94a3b8;
       text-transform: uppercase;
       font-weight: 700;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.8);
     }
 
-    /* Нижняя карточка */
+    /* Нижняя информационная карточка */
     .bottom-sheet {
       background: rgba(15, 23, 42, 0.95);
       backdrop-filter: blur(16px);
@@ -137,22 +163,46 @@
     .tag-exit { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
     .tag-denied { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
 
-    .btn-capture {
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-      color: #fff;
-      border: none;
-      padding: 16px;
+    /* Кнопка действия */
+    .btn-action {
+      background: #1e293b;
+      color: #64748b;
+      border: 1px solid #334155;
+      padding: 18px;
       border-radius: 14px;
       font-size: 16px;
       font-weight: 800;
-      letter-spacing: 1px;
-      cursor: pointer;
-      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.35);
+      letter-spacing: 0.5px;
+      cursor: not-allowed;
+      transition: all 0.2s ease;
     }
-    .btn-capture:active { transform: scale(0.98); }
-    .btn-capture:disabled { opacity: 0.5; }
 
-    /* Шторка списка iOS Style */
+    .btn-action.ready-enter {
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(16, 185, 129, 0.5);
+      animation: pulseBtn 1.2s infinite ease-in-out;
+    }
+
+    .btn-action.ready-exit {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(56, 189, 248, 0.5);
+    }
+
+    @keyframes pulseBtn {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+      100% { transform: scale(1); }
+    }
+
+    .btn-action:active { transform: scale(0.97); }
+
+    /* Модальные окна */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -260,7 +310,7 @@
     }
     .search-input-box input:focus { border-color: #38bdf8; outline: none; background: rgba(255, 255, 255, 0.08); }
 
-    /* Карточки авто */
+    /* Список машин */
     .plate-list-container {
       overflow-y: auto;
       display: flex;
@@ -294,7 +344,6 @@
       gap: 10px;
     }
 
-    /* Реалистичный российский номерной знак */
     .plate-badge-rus {
       background: #ffffff;
       color: #000000;
@@ -377,7 +426,7 @@
       cursor: pointer;
     }
 
-    /* Модалка добавления авто */
+    /* Модалка ручного добавления */
     .center-modal {
       background: #1e293b;
       width: 100%;
@@ -430,13 +479,13 @@
   <div class="camera-viewport">
     <video id="v" autoplay playsinline muted></video>
     <div class="plate-target" id="target">
-      <span class="target-hint">Номер в рамку</span>
+      <span class="target-hint" id="targetHint">Наведите на номер</span>
     </div>
   </div>
 
   <div class="bottom-sheet">
     <div class="vehicle-card">
-      <div class="plate-title" id="plateView">НАВЕДИТЕ КАМЕРУ</div>
+      <div class="plate-title" id="plateView">ПОИСК НОМЕРА...</div>
       <div id="detailsBox" style="display: none;">
         <div class="vehicle-owner" id="ownerView">—</div>
         <div class="vehicle-desc" id="descView">—</div>
@@ -444,10 +493,10 @@
         <div class="tag-status" id="statusTag">—</div>
       </div>
     </div>
-    <button class="btn-capture" id="scanBtn" onclick="scanAutoPlate()">СКАНИРОВАТЬ</button>
+    <button class="btn-action" id="actionBtn" disabled onclick="executeVehicleAction()">ОЖИДАНИЕ АВТОМОБИЛЯ</button>
   </div>
 
-  <!-- Модалка добавления -->
+  <!-- Модалка ручного внесения авто -->
   <div class="modal-overlay" id="modal" style="align-items: center; justify-content: center;">
     <div class="center-modal">
       <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -455,13 +504,13 @@
         <button class="btn-close-circle" onclick="closeModal()">✕</button>
       </div>
       <input type="text" id="mPlate" placeholder="Номер (напр. С640УК69)" autocapitalize="characters">
-      <input type="text" id="mOwner" placeholder="ФИО владельца">
+      <input type="text" id="mOwner" placeholder="ФИО водителя / пассажира">
       <input type="text" id="mModel" placeholder="Марка авто и категория">
       <button class="btn-modal-save" id="saveBtn" onclick="saveToCloud()">Сохранить в базу</button>
     </div>
   </div>
 
-  <!-- Шторка реестра авто -->
+  <!-- Шторка списка и реестра -->
   <div class="modal-overlay" id="listModal" onclick="handleBackdropClick(event)">
     <div class="sheet-modal">
       <div class="sheet-handle"></div>
@@ -498,9 +547,11 @@
     const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     let CARS_DB = {};
-    let isProcessing = false;
+    let isOcrBusy = false;
     let videoTrack = null;
     let torchActive = false;
+    let detectedPlate = null;
+    let tesseractWorker = null;
 
     const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
     const CHAR_CONVERT = {
@@ -510,8 +561,9 @@
 
     const v = document.getElementById('v');
     const c = document.getElementById('c');
-    const scanBtn = document.getElementById('scanBtn');
+    const actionBtn = document.getElementById('actionBtn');
     const target = document.getElementById('target');
+    const targetHint = document.getElementById('targetHint');
     const plateView = document.getElementById('plateView');
     const detailsBox = document.getElementById('detailsBox');
     const ownerView = document.getElementById('ownerView');
@@ -528,9 +580,32 @@
         });
         v.srcObject = stream;
         videoTrack = stream.getVideoTracks()[0];
+
+        v.onloadedmetadata = () => {
+          initTesseractWorker();
+        };
       } catch (err) {
         alert("Предоставьте доступ к камере в настройках браузера.");
       }
+    }
+
+    async function initTesseractWorker() {
+      try {
+        tesseractWorker = await Tesseract.createWorker('rus+eng');
+        await tesseractWorker.setParameters({
+          tessedit_char_whitelist: '0123456789АВЕКМНОРСТУХABEKMHOPCTYX'
+        });
+        startContinuousScanning();
+      } catch (e) {
+        console.error("Worker error:", e);
+      }
+    }
+
+    function startContinuousScanning() {
+      setInterval(async () => {
+        if (isOcrBusy || !v.videoWidth || !tesseractWorker) return;
+        await scanFrame();
+      }, 450);
     }
 
     async function toggleTorch() {
@@ -574,10 +649,7 @@
               delete CARS_DB[oldPlate];
               updateStatusHeader();
               renderFilteredList();
-              if (plateView.innerText === oldPlate) {
-                plateView.innerText = "НАВЕДИТЕ КАМЕРУ";
-                detailsBox.style.display = "none";
-              }
+              if (detectedPlate === oldPlate) resetRecognitionState();
             }
             return;
           }
@@ -587,7 +659,7 @@
             CARS_DB[row.plate] = row;
             updateStatusHeader();
             renderFilteredList();
-            if (plateView.innerText === row.plate) displayCarStatus(row);
+            if (detectedPlate === row.plate) evaluatePlateMatch(row.plate);
           }
         })
         .subscribe();
@@ -605,13 +677,8 @@
       return (raw || '').toString().replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
     }
 
-    async function scanAutoPlate() {
-      if (isProcessing) return;
-      isProcessing = true;
-      scanBtn.disabled = true;
-      scanBtn.innerText = "ОБРАБОТКА...";
-      target.className = "plate-target";
-
+    async function scanFrame() {
+      isOcrBusy = true;
       const vW = v.videoWidth;
       const vH = v.videoHeight;
       const cropW = Math.floor(vW * 0.85);
@@ -624,6 +691,7 @@
       const ctx = c.getContext('2d');
       ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
+      // Otsu бинаризация для чёткого распознавания контраста
       const imgData = ctx.getImageData(0, 0, cropW, cropH);
       const d = imgData.data;
       let histogram = new Array(256).fill(0);
@@ -659,44 +727,94 @@
       ctx.putImageData(imgData, 0, 0);
 
       try {
-        const { data: { text } } = await Tesseract.recognize(c.toDataURL('image/jpeg', 0.9), 'rus+eng', {
-          tessedit_char_whitelist: '0123456789АВЕКМНОРСТУХABEKMHOPCTYX'
-        });
-
+        const { data: { text } } = await tesseractWorker.recognize(c);
         const cleaned = text.toUpperCase().replace(/[^А-ЯA-Z0-9]/g, '');
         const match = cleaned.match(PLATE_REGEX);
 
         if (match) {
           const plate = sanitizePlate(match[0]);
-          plateView.innerText = plate;
-          await processVehiclePass(plate);
-        } else {
-          plateView.innerText = "НЕ РАСПОЗНАН";
-          detailsBox.style.display = "none";
+          if (plate !== detectedPlate) {
+            detectedPlate = plate;
+            evaluatePlateMatch(plate);
+          }
         }
       } catch (err) {
-        plateView.innerText = "ОШИБКА";
+        // Одиночные пропуски кадров
       } finally {
-        isProcessing = false;
-        scanBtn.disabled = false;
-        scanBtn.innerText = "СКАНИРОВАТЬ";
+        isOcrBusy = false;
       }
     }
 
-    async function processVehiclePass(plate) {
+    function evaluatePlateMatch(plate) {
+      plateView.innerText = plate;
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
 
-      if (!car || !car.pass) {
+      if (car && car.pass) {
+        ownerView.innerText = car.name || "Без имени";
+        descView.innerText = `${car.car && car.car !== '—' ? car.car + ' • ' : ''}${car.role || 'Допуск'}`;
+        
+        if (!car.is_inside) {
+          // Машина подъехала на въезд
+          target.className = "plate-target granted";
+          targetHint.innerText = "Автомобиль в базе — можно запускать";
+          statusTag.className = "tag-status tag-granted";
+          statusTag.innerText = "ПРОПУСК ДЕЙСТВИТЕЛЕН";
+          timeView.innerText = car.left_at ? `Прошлый выезд: ${formatTime(car.left_at)}` : "Ожидает заезда";
+          
+          actionBtn.disabled = false;
+          actionBtn.className = "btn-action ready-enter";
+          actionBtn.innerText = "ПРОПУСТИТЬ АВТОМОБИЛЬ";
+        } else {
+          // Машина подъехала на выезд
+          target.className = "plate-target exit";
+          targetHint.innerText = "Автомобиль на территории";
+          statusTag.className = "tag-status tag-exit";
+          statusTag.innerText = "НА ПАРКОВКЕ";
+          timeView.innerText = `Заезд: ${formatTime(car.entered_at)}`;
+          
+          actionBtn.disabled = false;
+          actionBtn.className = "btn-action ready-exit";
+          actionBtn.innerText = "ОТМЕТИТЬ ВЫЕЗД";
+        }
+
+        if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      } else {
+        // Запрещен или нет в базе
         target.className = "plate-target denied";
-        ownerView.innerText = car ? car.name : "Автомобиля нет в реестре";
-        descView.innerText = car ? (car.role || "Допуск закрыт") : "Проезд запрещен";
+        targetHint.innerText = "Внимание!";
+        ownerView.innerText = car ? car.name : "Автомобиля нет в списках";
+        descView.innerText = car ? (car.role || "Допуск отозван") : "Проезд запрещен";
         timeView.innerText = "";
         statusTag.className = "tag-status tag-denied";
-        statusTag.innerText = "ДОСТУП ЗАПРЕЩЕН";
-        if (navigator.vibrate) navigator.vibrate(400);
-        return;
+        statusTag.innerText = "ПРОЕЗД ЗАПРЕЩЕН";
+
+        actionBtn.disabled = true;
+        actionBtn.className = "btn-action";
+        actionBtn.innerText = "ПРОЕЗД ЗАПРЕЩЕН";
+
+        if (navigator.vibrate) navigator.vibrate(300);
       }
+    }
+
+    function resetRecognitionState() {
+      detectedPlate = null;
+      plateView.innerText = "ПОИСК НОМЕРА...";
+      detailsBox.style.display = "none";
+      target.className = "plate-target";
+      targetHint.innerText = "Наведите на номер";
+      actionBtn.disabled = true;
+      actionBtn.className = "btn-action";
+      actionBtn.innerText = "ОЖИДАНИЕ АВТОМОБИЛЯ";
+    }
+
+    async function executeVehicleAction() {
+      if (!detectedPlate) return;
+      const car = CARS_DB[detectedPlate];
+      if (!car || !car.pass) return;
+
+      actionBtn.disabled = true;
+      actionBtn.innerText = "ЗАПИСЬ...";
 
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
@@ -704,36 +822,17 @@
       const { error } = await db.from('plates').update({
         is_inside: nextInside,
         ...(nextInside ? { entered_at: now } : { left_at: now })
-      }).eq('plate', plate);
+      }).eq('plate', detectedPlate);
 
       if (!error) {
         car.is_inside = nextInside;
         if (nextInside) car.entered_at = now; else car.left_at = now;
-        displayCarStatus(car, true);
+        evaluatePlateMatch(detectedPlate);
         updateStatusHeader();
         renderFilteredList();
       } else {
-        alert("Ошибка записи в базу: " + error.message);
-      }
-    }
-
-    function displayCarStatus(car, justTriggered = false) {
-      detailsBox.style.display = "block";
-      ownerView.innerText = car.name || "Без имени";
-      descView.innerText = `${car.car && car.car !== '—' ? car.car + ' • ' : ''}${car.role || 'Допуск'}`;
-
-      if (car.is_inside) {
-        target.className = "plate-target granted";
-        statusTag.className = "tag-status tag-granted";
-        statusTag.innerText = justTriggered ? "ВЪЕЗД ЗАФИКСИРОВАН" : "НА ТЕРРИТОРИИ";
-        timeView.innerText = car.entered_at ? `Заезд: ${formatTime(car.entered_at)}` : "Заезд зафиксирован";
-        if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
-      } else {
-        target.className = "plate-target exit";
-        statusTag.className = "tag-status tag-exit";
-        statusTag.innerText = justTriggered ? "ВЫЕЗД ЗАФИКСИРОВАН" : "ВЫЕХАЛ";
-        timeView.innerText = car.left_at ? `Выезд: ${formatTime(car.left_at)}` : "Вне территории";
-        if (navigator.vibrate) navigator.vibrate([150]);
+        alert("Ошибка: " + error.message);
+        actionBtn.disabled = false;
       }
     }
 
@@ -748,10 +847,7 @@
         delete CARS_DB[plate];
         updateStatusHeader();
         renderFilteredList();
-        if (plateView.innerText === plate) {
-          plateView.innerText = "НАВЕДИТЕ КАМЕРУ";
-          detailsBox.style.display = "none";
-        }
+        if (detectedPlate === plate) resetRecognitionState();
       }
     }
 
@@ -885,7 +981,7 @@
       if (!error) {
         CARS_DB[plate].pass = nextPass;
         renderFilteredList();
-        if (plateView.innerText === plate) displayCarStatus(CARS_DB[plate]);
+        if (detectedPlate === plate) evaluatePlateMatch(plate);
       } else {
         alert("Ошибка: " + error.message);
       }
@@ -916,8 +1012,7 @@
         role: mIn.value.trim() || "Внеплановый",
         car: "—",
         pass: true,
-        is_inside: true,
-        entered_at: now
+        is_inside: false
       };
 
       const { error } = await db.from('plates').upsert([newRecord], { onConflict: 'plate' });
@@ -930,9 +1025,10 @@
         pIn.value = ""; oIn.value = ""; mIn.value = "";
         closeModal();
         CARS_DB[plate] = newRecord;
-        plateView.innerText = plate;
-        displayCarStatus(newRecord, true);
         updateStatusHeader();
+        renderFilteredList();
+        detectedPlate = plate;
+        evaluatePlateMatch(plate);
       }
     }
 
