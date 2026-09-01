@@ -339,6 +339,11 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .car-row-card:active {
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .car-info-col {
@@ -469,6 +474,116 @@
       cursor: pointer;
     }
 
+    /* Карточка детальной информации */
+    .detail-card-modal {
+      background: #1e293b;
+      width: 100%;
+      max-width: 400px;
+      margin: auto 16px;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes scaleIn {
+      from { transform: scale(0.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .detail-plate-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .detail-plate-box {
+      background: #fff;
+      color: #000;
+      border: 2px solid #000;
+      border-radius: 8px;
+      padding: 4px 14px;
+      font-family: monospace;
+      font-weight: 900;
+      font-size: 24px;
+      letter-spacing: 2px;
+      display: inline-flex;
+      align-items: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .detail-info-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .detail-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .detail-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #64748b;
+      font-weight: 700;
+    }
+    .detail-val {
+      font-size: 15px;
+      color: #f1f5f9;
+      font-weight: 600;
+      word-break: break-word;
+      line-height: 1.3;
+    }
+
+    .detail-actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .btn-detail-action {
+      padding: 13px;
+      border-radius: 12px;
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.15s;
+    }
+    .btn-detail-action:active { transform: scale(0.96); }
+
+    .btn-detail-pass {
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: #fff;
+    }
+    .btn-detail-toggle {
+      background: rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .btn-detail-delete {
+      grid-column: span 2;
+      background: rgba(239, 68, 68, 0.12);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.25);
+    }
+
     canvas { display: none; }
     #excelFileInput { display: none; }
   </style>
@@ -559,6 +674,51 @@
     </div>
   </div>
 
+  <!-- Модальное окно полной детальной информации -->
+  <div class="modal-overlay" id="detailModal" style="align-items: center; justify-content: center; z-index: 120;">
+    <div class="detail-card-modal">
+      <div class="detail-plate-hero">
+        <div class="detail-plate-box" id="detPlate">—</div>
+        <button class="btn-close-circle" onclick="closeDetailModal()">✕</button>
+      </div>
+
+      <div class="detail-info-group">
+        <div class="detail-row">
+          <span class="detail-label">Персона / Водитель</span>
+          <span class="detail-val" id="detName" style="color: #38bdf8;">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Автомобиль</span>
+          <span class="detail-val" id="detCar">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Категория / Роль</span>
+          <span class="detail-val" id="detRole">—</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Текущий статус на КПП</span>
+          <span class="detail-val" id="detStatus">—</span>
+        </div>
+        <div class="detail-row" id="detTimeRow" style="display: none;">
+          <span class="detail-label">Хронология перемещений</span>
+          <span class="detail-val" id="detTime" style="font-size: 13px; color: #94a3b8;">—</span>
+        </div>
+      </div>
+
+      <div class="detail-actions-grid">
+        <button class="btn-detail-action btn-detail-pass" id="detActionBtn" onclick="executeDetailPassAction()">
+          Отметить въезд
+        </button>
+        <button class="btn-detail-action btn-detail-toggle" id="detToggleBtn" onclick="toggleDetailAccess()">
+          Допуск: Да
+        </button>
+        <button class="btn-detail-action btn-detail-delete" onclick="deleteDetailCar()">
+          🗑 Удалить автомобиль из базы
+        </button>
+      </div>
+    </div>
+  </div>
+
   <canvas id="c"></canvas>
 
   <script>
@@ -572,6 +732,7 @@
     let videoTrack = null;
     let torchActive = false;
     let detectedPlate = null;
+    let selectedDetailPlate = null;
     let tesseractWorker = null;
     let activeFilter = 'all';
 
@@ -581,7 +742,6 @@
       'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
     };
 
-    // Словарь марок автомобилей для умного автоопределения колонок
     const KNOWN_BRANDS = [
       'МЕРСЕДЕС', 'MERCEDES', 'МАЙБАХ', 'MAYBACH', 'СПРИНТЕР', 'SPRINTER',
       'ТОЙОТА', 'TOYOTA', 'РОЛЛС', 'РОЙС', 'ROLLS', 'ROYCE', 'АУРУС', 'AURUS',
@@ -679,6 +839,7 @@
               updateStatusHeader();
               renderFilteredList();
               if (detectedPlate === oldPlate) resetRecognitionState();
+              if (selectedDetailPlate === oldPlate) closeDetailModal();
             }
             return;
           }
@@ -689,6 +850,7 @@
             updateStatusHeader();
             renderFilteredList();
             if (detectedPlate === row.plate) evaluatePlateMatch(row.plate);
+            if (selectedDetailPlate === row.plate) renderDetailModal(row);
           }
         })
         .subscribe();
@@ -876,16 +1038,113 @@
         updateStatusHeader();
         renderFilteredList();
         if (detectedPlate === plate) resetRecognitionState();
+        if (selectedDetailPlate === plate) closeDetailModal();
       }
     }
 
-    // УМНЫЙ СЕМАНТИЧЕСКИЙ ПАРСЕР ТАБЛИЦЫ EXCEL
+    // ДЕТАЛЬНАЯ КАРТОЧКА
+    function openDetailModal(plate) {
+      const car = CARS_DB[plate];
+      if (!car) return;
+      selectedDetailPlate = plate;
+      renderDetailModal(car);
+      document.getElementById('detailModal').classList.add('open');
+    }
+
+    function closeDetailModal() {
+      selectedDetailPlate = null;
+      document.getElementById('detailModal').classList.remove('open');
+    }
+
+    function renderDetailModal(car) {
+      document.getElementById('detPlate').innerText = car.plate;
+      document.getElementById('detName').innerText = car.name || 'Гость (без имени)';
+      document.getElementById('detCar').innerText = car.car || 'Не указан';
+      document.getElementById('detRole').innerText = car.role || 'VIP / Допуск';
+
+      const detStatus = document.getElementById('detStatus');
+      if (!car.pass) {
+        detStatus.innerHTML = '<span style="color:#f87171;">⛔ Пропуск заблокирован</span>';
+      } else if (car.is_inside) {
+        detStatus.innerHTML = '<span style="color:#4ade80;">🟢 На территории</span>';
+      } else {
+        detStatus.innerHTML = '<span style="color:#fbbf24;">🟡 Ожидается на въезд</span>';
+      }
+
+      const detTimeRow = document.getElementById('detTimeRow');
+      const detTime = document.getElementById('detTime');
+      if (car.entered_at || car.left_at) {
+        detTimeRow.style.display = 'flex';
+        detTime.innerHTML = `
+          ${car.entered_at ? 'Заезд: <b>' + formatTime(car.entered_at) + '</b>' : ''}
+          ${car.left_at ? (car.entered_at ? '<br>' : '') + 'Выезд: <b>' + formatTime(car.left_at) + '</b>' : ''}
+        `;
+      } else {
+        detTimeRow.style.display = 'none';
+      }
+
+      const passBtn = document.getElementById('detActionBtn');
+      if (car.is_inside) {
+        passBtn.className = 'btn-detail-action';
+        passBtn.style.background = 'linear-gradient(135deg, #0284c7, #38bdf8)';
+        passBtn.style.color = '#fff';
+        passBtn.innerText = 'Отметить выезд';
+      } else {
+        passBtn.className = 'btn-detail-action btn-detail-pass';
+        passBtn.style.background = 'linear-gradient(135deg, #059669, #10b981)';
+        passBtn.style.color = '#fff';
+        passBtn.innerText = 'Отметить въезд';
+      }
+
+      const toggleBtn = document.getElementById('detToggleBtn');
+      toggleBtn.innerText = car.pass ? 'Допуск: Да' : 'Допуск: Нет';
+      toggleBtn.style.color = car.pass ? '#4ade80' : '#f87171';
+    }
+
+    async function executeDetailPassAction() {
+      if (!selectedDetailPlate) return;
+      const car = CARS_DB[selectedDetailPlate];
+      if (!car) return;
+
+      const now = new Date().toISOString();
+      const nextInside = !car.is_inside;
+      
+      const { error } = await db.from('plates').update({
+        is_inside: nextInside,
+        ...(nextInside ? { entered_at: now } : { left_at: now })
+      }).eq('plate', selectedDetailPlate);
+
+      if (!error) {
+        car.is_inside = nextInside;
+        if (nextInside) car.entered_at = now; else car.left_at = now;
+        renderDetailModal(car);
+        updateStatusHeader();
+        renderFilteredList();
+      } else {
+        alert("Ошибка: " + error.message);
+      }
+    }
+
+    async function toggleDetailAccess() {
+      if (!selectedDetailPlate) return;
+      const car = CARS_DB[selectedDetailPlate];
+      if (!car) return;
+      await togglePassStatus(car.plate, car.pass);
+      renderDetailModal(car);
+    }
+
+    async function deleteDetailCar() {
+      if (!selectedDetailPlate) return;
+      await deleteCar(selectedDetailPlate);
+    }
+
+    // ИМПОРТ EXCEL
     async function handleExcelUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
       const importBtn = document.getElementById('importBtn');
-      importBtn.innerText = "⏳ Анализ...";
+      importBtn.innerText = "⏳...";
       importBtn.disabled = true;
 
       try {
@@ -908,7 +1167,6 @@
           let foundPlate = '';
           let plateColIndex = -1;
 
-          // 1. Поиск ячейки с госномером
           row.forEach((cellVal, idx) => {
             const sanitized = sanitizePlate(String(cellVal));
             if (PLATE_REGEX_CHECK.test(sanitized) && !foundPlate) {
@@ -917,18 +1175,15 @@
             }
           });
 
-          // Если в строке обнаружен валидный номер
           if (foundPlate) {
             let candidateName = '';
             let candidateCar = '—';
             let candidateRole = 'VIP';
 
-            // Собираем остальные текстовые ячейки
             const otherCells = row
               .map((c, idx) => ({ val: String(c || '').trim(), idx }))
               .filter(item => item.idx !== plateColIndex && item.val.length > 0);
 
-            // 2. Ищем ячейку с маркой автомобиля по базе брендов
             let carCellIdx = -1;
             for (let item of otherCells) {
               const upper = item.val.toUpperCase();
@@ -940,16 +1195,13 @@
               }
             }
 
-            // 3. Выделяем имя/персону из оставшихся колонок
             const remainingForName = otherCells.filter(item => item.idx !== carCellIdx);
             if (remainingForName.length > 0) {
-              // Именем берем первую свободную или наиболее подробную ячейку
               candidateName = remainingForName[0].val;
             } else {
               candidateName = 'Гость';
             }
 
-            // 4. Определение роли (охрана, водитель, сопровождение)
             const combinedText = (candidateName + ' ' + candidateCar).toLowerCase();
             if (combinedText.includes('охран') || combinedText.includes('чоп')) {
               candidateRole = 'Охрана';
@@ -982,7 +1234,7 @@
         if (error) {
           alert("Ошибка БД: " + error.message);
         } else {
-          alert(`Успешно распознано и загружено: ${formattedRecords.length} автомобилей!`);
+          alert(`Успешно загружено: ${formattedRecords.length} автомобилей!`);
           await initCloud();
           renderFilteredList();
         }
@@ -1006,6 +1258,7 @@
 
     function handleBackdropClick(e) {
       if (e.target.id === 'listModal') closeListModal();
+      if (e.target.id === 'detailModal') closeDetailModal();
     }
 
     function setListFilter(filter) {
@@ -1047,7 +1300,7 @@
       }
 
       container.innerHTML = list.map(item => `
-        <div class="car-row-card">
+        <div class="car-row-card" onclick="openDetailModal('${item.plate}')">
           <div class="car-info-col">
             <div class="car-header-line">
               <div class="plate-badge-rus">${item.plate}</div>
@@ -1065,7 +1318,7 @@
               </div>
             ` : ''}
           </div>
-          <div class="car-actions-col">
+          <div class="car-actions-col" onclick="event.stopPropagation()">
             <button class="btn-status-pill ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
               ${item.pass ? 'Допуск' : 'Блок'}
             </button>
