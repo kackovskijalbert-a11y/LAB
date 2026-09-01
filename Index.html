@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>КПП — Автосканер</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #070d19; color: #fff; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* Шапка */
+    .top-bar {
+      padding: 10px 14px;
+      background: #0f172a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #1e293b;
+      z-index: 10;
+    }
+    .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #38bdf8; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+    .header-actions { display: flex; gap: 8px; }
+    .btn-icon {
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-manual { background: #059669; color: #fff; border-color: #10b981; }
+
+    /* Видоискатель автономера */
+    .camera-viewport {
+      position: relative;
+      flex: 1;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    video { width: 100%; height: 100%; object-fit: cover; }
+
+    /* ГОСТ-рамка: соотношение ~4.6:1 (520x112 мм) */
+    .plate-target {
+      position: absolute;
+      width: 86%;
+      max-width: 360px;
+      aspect-ratio: 52 / 11.2;
+      border: 3px solid #38bdf8;
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    .plate-target.granted { border-color: #22c55e; box-shadow: 0 0 25px rgba(34, 197, 94, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
+    .plate-target.denied { border-color: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
+
+    .target-hint {
+      position: absolute;
+      bottom: -28px;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* Нижняя карточка информации */
+    .bottom-sheet {
+      background: #0f172a;
+      padding: 14px 16px;
+      border-top: 1px solid #1e293b;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .vehicle-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px 14px;
+      min-height: 86px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .plate-title {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: 3px;
+      font-family: monospace;
+      color: #f8fafc;
+    }
+
+    .vehicle-owner { font-size: 15px; font-weight: 700; color: #38bdf8; margin-top: 2px; }
+    .vehicle-desc { font-size: 13px; color: #94a3b8; }
+
+    .tag-status {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 800;
+      margin-top: 6px;
+      width: fit-content;
+      text-transform: uppercase;
+    }
+    .tag-granted { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
+    .tag-denied { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
+
+    .btn-capture {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      cursor: pointer;
+    }
+    .btn-capture:disabled { opacity: 0.5; }
+
+    /* Модальное окно */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 100;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-content {
+      background: #1e293b;
+      width: 100%;
+      max-width: 380px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .modal-content input {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 15px;
+    }
+    .modal-content input:focus { border-color: #38bdf8; outline: none; }
+    .btn-submit { background: #059669; color: #fff; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+    
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <div class="sync-info">
+      <span class="status-dot" id="dot"></span>
+      <span id="syncText">База: связь...</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" id="torchBtn" onclick="toggleTorch()">🔦 Свет</button>
+      <button class="btn-icon btn-manual" onclick="openModal()">➕ Вручную</button>
+    </div>
+  </div>
+
+  <div class="camera-viewport">
+    <video id="v" autoplay playsinline muted></video>
+    <div class="plate-target" id="target">
+      <span class="target-hint">Номер в рамку</span>
+    </div>
+  </div>
+
+  <div class="bottom-sheet">
+    <div class="vehicle-card">
+      <div class="plate-title" id="plateView">НАВЕДИТЕ КАМЕРУ</div>
+      <div id="detailsBox" style="display: none;">
+        <div class="vehicle-owner" id="ownerView">—</div>
+        <div class="vehicle-desc" id="descView">—</div>
+        <div class="tag-status" id="statusTag">—</div>
+      </div>
+    </div>
+    <button class="btn-capture" id="scanBtn" onclick="scanAutoPlate()">СКАНИРОВАТЬ</button>
+  </div>
+
+  <!-- Окно ручного добавления -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal-content">
+      <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
+        Внести автомобиль
+        <span style="cursor:pointer; color:#94a3b8;" onclick="closeModal()">✕</span>
+      </h3>
+      <input type="text" id="mPlate" placeholder="Номер (напр. А123ВС777)" autocapitalize="characters">
+      <input type="text" id="mOwner" placeholder="ФИО водителя / пассажира">
+      <input type="text" id="mModel" placeholder="Марка авто и роль (VIP, подрядчик)">
+      <button class="btn-submit" id="saveBtn" onclick="saveToCloud()">ДОБАВИТЬ В ОБЛАКО</button>
+    </div>
+  </div>
+
+  <canvas id="c"></canvas>
+
+  <script>
+    // ----------------------------------------------------
+    // НАСТРОЙКИ ОБЛАКА (SUPABASE)
+    // ----------------------------------------------------
+    const SUPABASE_URL = 'https://ymabfkywnfaqlxdmxftt.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_6g_a78Bu4-sFHzWAQIRjlw_Fn6J6WVV';
+
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let CARS_DB = {};
+    let isProcessing = false;
+    let videoTrack = null;
+    let torchActive = false;
+
+    // Регулярка ГОСТ номеров РФ (А123ВС77 / А123ВС777)
+    const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
+
+    // Преобразование дублирующих букв латиницы в кириллицу
+    const CHAR_CONVERT = {
+      'A':'А', 'B':'В', 'E':'Е', 'K':'К', 'M':'М', 'H':'Н',
+      'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
+    };
+
+    const v = document.getElementById('v');
+    const c = document.getElementById('c');
+    const scanBtn = document.getElementById('scanBtn');
+    const target = document.getElementById('target');
+    const plateView = document.getElementById('plateView');
+    const detailsBox = document.getElementById('detailsBox');
+    const ownerView = document.getElementById('ownerView');
+    const descView = document.getElementById('descView');
+    const statusTag = document.getElementById('statusTag');
+    const syncText = document.getElementById('syncText');
+    const dot = document.getElementById('dot');
+
+    // 1. Инициализация камеры с высоким разрешением и автофокусом
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            focusMode: { ideal: "continuous" }
+          }
+        });
+        v.srcObject = stream;
+        videoTrack = stream.getVideoTracks()[0];
+      } catch (err) {
+        alert("Ошибка камеры: откройте страницу по HTTPS. " + err.message);
+      }
+    }
+
+    // 2. Включение фонарика (Torch) для ночной работы
+    async function toggleTorch() {
+      if (!videoTrack) return;
+      const capabilities = videoTrack.getCapabilities();
+      if (!capabilities.torch) {
+        alert("Вспышка не поддерживается вашим браузером");
+        return;
+      }
+      torchActive = !torchActive;
+      await videoTrack.applyConstraints({ advanced: [{ torch: torchActive }] });
+      document.getElementById('torchBtn').innerText = torchActive ? "💡 Выкл" : "🔦 Свет";
+    }
+
+    // 3. Синхронизация с базой Supabase
+    async function initCloud() {
+      syncText.innerText = "Загрузка...";
+      const { data, error } = await db.from('plates').select('plate, name, role, car, pass');
+      
+      if (error) {
+        syncText.innerText = "Офлайн-режим";
+        dot.style.background = "#ef4444";
+        return;
+      }
+
+      CARS_DB = {};
+      data.forEach(item => {
+        CARS_DB[item.plate] = item;
+      });
+      syncText.innerText = `В базе: ${data.length} авто`;
+
+      // Realtime-подписка на обновления
+      db.channel('realtime:plates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
+          const row = payload.new;
+          if (row && row.plate) {
+            CARS_DB[row.plate] = row;
+            syncText.innerText = `В базе: ${Object.keys(CARS_DB).length} авто`;
+            if (plateView.innerText === row.plate) displayCarStatus(row.plate);
+          }
+        })
+        .subscribe();
+    }
+
+    function sanitizePlate(raw) {
+      return raw.replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
+    }
+
+    // 4. Захват, адаптивная бинаризация и распознавание
+    async function scanAutoPlate() {
+      if (isProcessing) return;
+      isProcessing = true;
+      scanBtn.disabled = true;
+      scanBtn.innerText = "ОБРАБОТКА...";
+      target.className = "plate-target";
+
+      const vW = v.videoWidth;
+      const vH = v.videoHeight;
+
+      // Вырезаем строго пропорцию автомобильного номера (4.6 : 1)
+      const cropW = Math.floor(vW * 0.85);
+      const cropH = Math.floor(cropW / 4.6);
+      const cropX = Math.floor((vW - cropW) / 2);
+      const cropY = Math.floor((vH - cropH) / 2);
+
+      c.width = cropW;
+      c.height = cropH;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      // Адаптивная бинаризация (Оцу) для контрастирования текста
+      const imgData = ctx.getImageData(0, 0, cropW, cropH);
+      const d = imgData.data;
+      
+      let histogram = new Array(256).fill(0);
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+        d[i] = gray;
+        histogram[gray]++;
+      }
+
+      // Вычисление оптимального порога Otsu
+      let total = d.length / 4;
+      let sum = 0;
+      for (let t = 0; t < 256; t++) sum += t * histogram[t];
+      let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 120;
+
+      for (let t = 0; t < 256; t++) {
+        wB += histogram[t];
+        if (wB === 0) continue;
+        wF = total - wB;
+        if (wF === 0) break;
+        sumB += t * histogram[t];
+        let mB = sumB / wB;
+        let mF = (sum - sumB) / wF;
+        let varBetween = wB * wF * (mB - mF) * (mB - mF);
+        if (varBetween > varMax) {
+          varMax = varBetween;
+          threshold = t;
+        }
+      }
+
+      // Наложение бинарной маски
+      for (let i = 0; i < d.length; i += 4) {
+        const val = d[i] > threshold ? 255 : 0;
+        d[i] = d[i+1] = d[i+2] = val;
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      try {
+        const { data: { text } } = await Tesseract.recognize(c.toDataURL('image/jpeg', 0.9), 'rus+eng', {
+          tessedit_char_whitelist: '0123456789АВЕКМНОРСТУХABEKMHOPCTYX'
+        });
+
+        const cleaned = text.toUpperCase().replace(/[^А-ЯA-Z0-9]/g, '');
+        const match = cleaned.match(PLATE_REGEX);
+
+        if (match) {
+          const plate = sanitizePlate(match[0]);
+          plateView.innerText = plate;
+          displayCarStatus(plate);
+        } else {
+          plateView.innerText = "НЕ РАСПОЗНАН";
+          detailsBox.style.display = "none";
+        }
+      } catch (err) {
+        plateView.innerText = "ОШИБКА СКАНИРОВАНИЯ";
+      } finally {
+        isProcessing = false;
+        scanBtn.disabled = false;
+        scanBtn.innerText = "СКАНИРОВАТЬ";
+      }
+    }
+
+    // 5. Вывод статуса автомобиля
+    function displayCarStatus(plate) {
+      detailsBox.style.display = "block";
+      const car = CARS_DB[plate];
+
+      if (car && car.pass) {
+        target.className = "plate-target granted";
+        ownerView.innerText = car.name || "Гость";
+        descView.innerText = `${car.car || '—'} • ${car.role || 'Допуск'}`;
+        statusTag.className = "tag-status tag-granted";
+        statusTag.innerText = "ВЪЕЗД РАЗРЕШЕН";
+        if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+      } else {
+        target.className = "plate-target denied";
+        ownerView.innerText = "Автомобиля нет в списках";
+        descView.innerText = "Проезд закрыт";
+        statusTag.className = "tag-status tag-denied";
+        statusTag.innerText = "ДОСТУП ЗАПРЕЩЕН";
+        if (navigator.vibrate) navigator.vibrate(400);
+      }
+    }
+
+    // 6. Ручное добавление
+    function openModal() { document.getElementById('modal').classList.add('open'); }
+    function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+    async function saveToCloud() {
+      const pIn = document.getElementById('mPlate');
+      const oIn = document.getElementById('mOwner');
+      const mIn = document.getElementById('mModel');
+      const saveBtn = document.getElementById('saveBtn');
+
+      const plate = sanitizePlate(pIn.value);
+      if (!PLATE_REGEX.test(plate)) {
+        alert("Неверный номер. Формат: А123ВС77 или А123ВС777");
+        return;
+      }
+
+      saveBtn.disabled = true;
+      saveBtn.innerText = "Запись...";
+
+      const newRecord = {
+        plate: plate,
+        name: oIn.value.trim() || "Внеплановый гость",
+        role: mIn.value.trim() || "Добавлен на КПП",
+        car: "—",
+        pass: true
+      };
+
+      const { error } = await db.from('plates').insert([newRecord]);
+      saveBtn.disabled = false;
+      saveBtn.innerText = "ДОБАВИТЬ В ОБЛАКО";
+
+      if (error) {
+        alert("Ошибка: " + error.message);
+      } else {
+        pIn.value = ""; oIn.value = ""; mIn.value = "";
+        closeModal();
+        plateView.innerText = plate;
+        displayCarStatus(plate);
+      }
+    }
+
+    startCamera();
+    initCloud();
+  </script>
+</body>
+</html>
