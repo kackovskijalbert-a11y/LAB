@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>КПП — Автосканер</title>
   
+  <!-- Supabase, Tesseract и SheetJS для чтения Excel -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -153,7 +155,7 @@
     .modal-content {
       background: #1e293b;
       width: 100%;
-      max-width: 420px;
+      max-width: 440px;
       border-radius: 12px;
       border: 1px solid #334155;
       padding: 18px;
@@ -162,7 +164,7 @@
       gap: 12px;
       max-height: 85vh;
     }
-    .modal-content input {
+    .modal-content input[type="text"] {
       background: #0f172a;
       border: 1px solid #334155;
       color: #fff;
@@ -170,8 +172,29 @@
       border-radius: 6px;
       font-size: 15px;
     }
-    .modal-content input:focus { border-color: #38bdf8; outline: none; }
+    .modal-content input[type="text"]:focus { border-color: #38bdf8; outline: none; }
     .btn-submit { background: #059669; color: #fff; border: none; padding: 14px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+
+    /* Панель действий в списке */
+    .list-header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-excel-import {
+      background: #047857;
+      color: #fff;
+      border: 1px solid #10b981;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
 
     /* Список авто */
     .plate-list-container {
@@ -209,6 +232,7 @@
     .btn-toggle-pass.inactive { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
 
     canvas { display: none; }
+    #excelFileInput { display: none; }
   </style>
 </head>
 <body>
@@ -245,27 +269,36 @@
     <button class="btn-capture" id="scanBtn" onclick="scanAutoPlate()">СКАНИРОВАТЬ</button>
   </div>
 
-  <!-- Модалка ручного добавления -->
+  <!-- Модалка ручного добавления одного авто -->
   <div class="modal-overlay" id="modal">
     <div class="modal-content">
       <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
         Внести автомобиль
         <span style="cursor:pointer; color:#94a3b8;" onclick="closeModal()">✕</span>
       </h3>
-      <input type="text" id="mPlate" placeholder="Номер (напр. О007ОО77)" autocapitalize="characters">
+      <input type="text" id="mPlate" placeholder="Номер (напр. А123ВС777)" autocapitalize="characters">
       <input type="text" id="mOwner" placeholder="ФИО водителя / пассажира">
       <input type="text" id="mModel" placeholder="Марка авто и роль (VIP, подрядчик)">
       <button class="btn-submit" id="saveBtn" onclick="saveToCloud()">ДОБАВИТЬ В ОБЛАКО</button>
     </div>
   </div>
 
-  <!-- Модалка списка авто -->
+  <!-- Модалка реестра и импорта Excel -->
   <div class="modal-overlay" id="listModal">
     <div class="modal-content">
-      <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
-        <span>На площадке: <b id="onSiteCount" style="color: #4ade80;">0</b> из <span id="counterSpan">0</span></span>
-        <span style="cursor:pointer; color:#94a3b8;" onclick="closeListModal()">✕</span>
-      </h3>
+      <div class="list-header-bar">
+        <h3 style="font-size: 16px;">
+          <span>Внутри: <b id="onSiteCount" style="color: #4ade80;">0</b> из <span id="counterSpan">0</span></span>
+        </h3>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" onchange="handleExcelUpload(event)">
+          <button class="btn-excel-import" id="importBtn" onclick="document.getElementById('excelFileInput').click()">
+            📂 Импорт Excel
+          </button>
+          <span style="cursor:pointer; font-size: 18px; color:#94a3b8;" onclick="closeListModal()">✕</span>
+        </div>
+      </div>
+
       <input type="text" id="searchInput" placeholder="Быстрый поиск по номеру или ФИО..." oninput="renderFilteredList()">
       <div class="plate-list-container" id="plateListContainer"></div>
     </div>
@@ -324,7 +357,7 @@
       if (!videoTrack) return;
       const capabilities = videoTrack.getCapabilities();
       if (!capabilities.torch) {
-        alert("Вспышка не поддерживается на этом устройстве");
+        alert("Вспышка не поддерживается");
         return;
       }
       torchActive = !torchActive;
@@ -352,7 +385,7 @@
       data.forEach(item => { CARS_DB[item.plate] = item; });
       updateStatusHeader();
 
-      // Realtime-синхронизация
+      // Realtime
       db.channel('realtime:plates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
           const row = payload.new;
@@ -376,7 +409,7 @@
     }
 
     function sanitizePlate(raw) {
-      return raw.replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
+      return (raw || '').toString().replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
     }
 
     async function scanAutoPlate() {
@@ -458,7 +491,6 @@
       }
     }
 
-    // Автоматическая фиксация въезда / выезда
     async function processVehiclePass(plate) {
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
@@ -477,17 +509,10 @@
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
       
-      // Попытка обновления с новыми полями
-      let { error } = await db.from('plates').update({
+      const { error } = await db.from('plates').update({
         is_inside: nextInside,
         ...(nextInside ? { entered_at: now } : { left_at: now })
       }).eq('plate', plate);
-
-      // Фоллбек, если колонки еще не применились в БД
-      if (error && error.message && error.message.includes("schema cache")) {
-        const fallback = await db.from('plates').update({ pass: true }).eq('plate', plate);
-        error = fallback.error;
-      }
 
       if (!error) {
         car.is_inside = nextInside;
@@ -517,6 +542,73 @@
         statusTag.innerText = justTriggered ? "ВЫЕЗД ЗАФИКСИРОВАН" : "ВЫЕХАЛ";
         timeView.innerText = car.left_at ? `Выезд: ${formatTime(car.left_at)}` : "Вне территории";
         if (navigator.vibrate) navigator.vibrate([150]);
+      }
+    }
+
+    // ИМПОРТ EXCEL / CSV ПРЯМО В ПРИЛОЖЕНИИ
+    async function handleExcelUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const importBtn = document.getElementById('importBtn');
+      importBtn.innerText = "⏳ Загрузка...";
+      importBtn.disabled = true;
+
+      try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+
+        if (!rows.length) {
+          alert("Таблица пуста!");
+          return;
+        }
+
+        const formattedRecords = [];
+
+        rows.forEach(r => {
+          // Ищем номер среди возможных названий колонок
+          const rawPlate = r['plate'] || r['номер'] || r['Номер'] || r['Госномер'] || r['госномер'] || r['НОМЕР'] || Object.values(r)[0];
+          const plate = sanitizePlate(rawPlate);
+
+          if (plate && plate.length >= 6) {
+            const name = r['name'] || r['фио'] || r['ФИО'] || r['Водитель'] || r['Имя'] || '';
+            const role = r['role'] || r['роль'] || r['Роль'] || r['Категория'] || 'Пропуск';
+            const car = r['car'] || r['марка'] || r['Марка'] || r['авто'] || r['Автомобиль'] || '—';
+            
+            formattedRecords.push({
+              plate: plate,
+              name: String(name).trim() || 'Гость',
+              role: String(role).trim() || 'Пропуск',
+              car: String(car).trim() || '—',
+              pass: true,
+              is_inside: false
+            });
+          }
+        });
+
+        if (!formattedRecords.length) {
+          alert("Не удалось распознать автомобильные номера в файле. Проверьте заголовки колонок.");
+          return;
+        }
+
+        // Пакетная загрузка в Supabase с перезаписью дубликатов (upsert)
+        const { error } = await db.from('plates').upsert(formattedRecords, { onConflict: 'plate' });
+
+        if (error) {
+          alert("Ошибка импорта в БД: " + error.message);
+        } else {
+          alert(`Успешно загружено ${formattedRecords.length} авто!`);
+          await initCloud();
+          renderFilteredList();
+        }
+      } catch (err) {
+        alert("Ошибка чтения файла Excel: " + err.message);
+      } finally {
+        importBtn.innerText = "📂 Импорт Excel";
+        importBtn.disabled = false;
+        event.target.value = '';
       }
     }
 
@@ -589,7 +681,7 @@
 
       const plate = sanitizePlate(pIn.value);
       if (!PLATE_REGEX.test(plate)) {
-        alert("Неверный номер. Формат: А123ВС77 или О007ОО77");
+        alert("Неверный номер. Формат: А123ВС77 или А123ВС777");
         return;
       }
 
@@ -607,22 +699,7 @@
         entered_at: now
       };
 
-      // Первичная попытка вставки
-      let { error } = await db.from('plates').insert([newRecord]);
-
-      // Фоллбек, если колонки entered_at еще нет
-      if (error && error.message && error.message.includes("schema cache")) {
-        const fallbackRecord = {
-          plate: plate,
-          name: newRecord.name,
-          role: newRecord.role,
-          car: newRecord.car,
-          pass: true
-        };
-        const res = await db.from('plates').insert([fallbackRecord]);
-        error = res.error;
-      }
-
+      const { error } = await db.from('plates').upsert([newRecord], { onConflict: 'plate' });
       saveBtn.disabled = false;
       saveBtn.innerText = "ДОБАВИТЬ В ОБЛАКО";
 
