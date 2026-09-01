@@ -37,7 +37,7 @@
     .btn-manual { background: #059669; color: #fff; border-color: #10b981; }
     .btn-list { background: #3b82f6; color: #fff; border-color: #60a5fa; }
 
-    /* Видоискатель автономера */
+    /* Видоискатель */
     .camera-viewport {
       position: relative;
       flex: 1;
@@ -64,6 +64,7 @@
       transition: all 0.2s ease;
     }
     .plate-target.granted { border-color: #22c55e; box-shadow: 0 0 25px rgba(34, 197, 94, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
+    .plate-target.exit { border-color: #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
     .plate-target.denied { border-color: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.6), 0 0 0 9999px rgba(0, 0, 0, 0.7); }
 
     .target-hint {
@@ -76,7 +77,7 @@
       font-weight: 600;
     }
 
-    /* Нижняя карточка информации */
+    /* Карточка информации */
     .bottom-sheet {
       background: #0f172a;
       padding: 14px 16px;
@@ -91,7 +92,7 @@
       border: 1px solid #334155;
       border-radius: 8px;
       padding: 12px 14px;
-      min-height: 86px;
+      min-height: 96px;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -107,6 +108,7 @@
 
     .vehicle-owner { font-size: 15px; font-weight: 700; color: #38bdf8; margin-top: 2px; }
     .vehicle-desc { font-size: 13px; color: #94a3b8; }
+    .vehicle-time { font-size: 12px; color: #cbd5e1; margin-top: 4px; font-weight: 600; }
 
     .tag-status {
       display: inline-block;
@@ -119,6 +121,7 @@
       text-transform: uppercase;
     }
     .tag-granted { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
+    .tag-exit { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
     .tag-denied { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }
 
     .btn-capture {
@@ -134,7 +137,7 @@
     }
     .btn-capture:disabled { opacity: 0.5; }
 
-    /* Модальные окна */
+    /* Модалки */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -188,9 +191,12 @@
       align-items: center;
     }
     .plate-item-meta { display: flex; flex-direction: column; gap: 2px; }
-    .plate-item-number { font-size: 16px; font-weight: 800; font-family: monospace; letter-spacing: 1px; }
+    .plate-item-number { font-size: 16px; font-weight: 800; font-family: monospace; letter-spacing: 1px; display: flex; align-items: center; gap: 6px; }
     .plate-item-sub { font-size: 12px; color: #94a3b8; }
     
+    .badge-inside { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; font-family: sans-serif; font-weight: 700; }
+    .badge-outside { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid #475569; font-family: sans-serif; font-weight: 600; }
+
     .btn-toggle-pass {
       padding: 6px 10px;
       border-radius: 6px;
@@ -232,6 +238,7 @@
       <div id="detailsBox" style="display: none;">
         <div class="vehicle-owner" id="ownerView">—</div>
         <div class="vehicle-desc" id="descView">—</div>
+        <div class="vehicle-time" id="timeView">—</div>
         <div class="tag-status" id="statusTag">—</div>
       </div>
     </div>
@@ -252,17 +259,15 @@
     </div>
   </div>
 
-  <!-- Модалка просмотра и поиска по базе авто -->
+  <!-- Модалка списка авто -->
   <div class="modal-overlay" id="listModal">
     <div class="modal-content">
       <h3 style="font-size: 17px; display: flex; justify-content: space-between;">
-        <span>Реестр авто (<span id="counterSpan">0</span>)</span>
+        <span>На площадке: <b id="onSiteCount" style="color: #4ade80;">0</b> из <span id="counterSpan">0</span></span>
         <span style="cursor:pointer; color:#94a3b8;" onclick="closeListModal()">✕</span>
       </h3>
       <input type="text" id="searchInput" placeholder="Быстрый поиск по номеру или ФИО..." oninput="renderFilteredList()">
-      <div class="plate-list-container" id="plateListContainer">
-        <!-- Заполняется динамически -->
-      </div>
+      <div class="plate-list-container" id="plateListContainer"></div>
     </div>
   </div>
 
@@ -294,6 +299,7 @@
     const detailsBox = document.getElementById('detailsBox');
     const ownerView = document.getElementById('ownerView');
     const descView = document.getElementById('descView');
+    const timeView = document.getElementById('timeView');
     const statusTag = document.getElementById('statusTag');
     const syncText = document.getElementById('syncText');
     const dot = document.getElementById('dot');
@@ -326,6 +332,12 @@
       document.getElementById('torchBtn').innerText = torchActive ? "💡 Выкл" : "🔦 Свет";
     }
 
+    function formatTime(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
     async function initCloud() {
       syncText.innerText = "Загрузка...";
       const { data, error } = await db.from('plates').select('*').order('created_at', { ascending: false });
@@ -340,7 +352,7 @@
       data.forEach(item => { CARS_DB[item.plate] = item; });
       updateStatusHeader();
 
-      // Realtime-синхронизация изменений
+      // Realtime-синхронизация
       db.channel('realtime:plates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
           const row = payload.new;
@@ -348,16 +360,19 @@
             CARS_DB[row.plate] = row;
             updateStatusHeader();
             renderFilteredList();
-            if (plateView.innerText === row.plate) displayCarStatus(row.plate);
+            if (plateView.innerText === row.plate) displayCarStatus(row);
           }
         })
         .subscribe();
     }
 
     function updateStatusHeader() {
-      const count = Object.keys(CARS_DB).length;
-      syncText.innerText = `В базе: ${count} авто`;
-      document.getElementById('counterSpan').innerText = count;
+      const items = Object.values(CARS_DB);
+      const total = items.length;
+      const inside = items.filter(x => x.is_inside).length;
+      syncText.innerText = `В базе: ${total} | Внутри: ${inside}`;
+      document.getElementById('counterSpan').innerText = total;
+      document.getElementById('onSiteCount').innerText = inside;
     }
 
     function sanitizePlate(raw) {
@@ -429,7 +444,7 @@
         if (match) {
           const plate = sanitizePlate(match[0]);
           plateView.innerText = plate;
-          displayCarStatus(plate);
+          await processVehiclePass(plate);
         } else {
           plateView.innerText = "НЕ РАСПОЗНАН";
           detailsBox.style.display = "none";
@@ -443,28 +458,66 @@
       }
     }
 
-    function displayCarStatus(plate) {
+    // Автоматическая фиксация въезда / выезда в БД
+    async function processVehiclePass(plate) {
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
 
-      if (car && car.pass) {
-        target.className = "plate-target granted";
-        ownerView.innerText = car.name || "Без имени";
-        descView.innerText = `${car.car || '—'} • ${car.role || 'Допуск'}`;
-        statusTag.className = "tag-status tag-granted";
-        statusTag.innerText = "ВЪЕЗД РАЗРЕШЕН";
-        if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
-      } else {
+      if (!car || !car.pass) {
         target.className = "plate-target denied";
         ownerView.innerText = car ? car.name : "Автомобиля нет в списках";
         descView.innerText = car ? (car.role || "Доступ отозван") : "Проезд закрыт";
+        timeView.innerText = "";
         statusTag.className = "tag-status tag-denied";
         statusTag.innerText = "ДОСТУП ЗАПРЕЩЕН";
         if (navigator.vibrate) navigator.vibrate(400);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const nextInside = !car.is_inside;
+      const updateData = { is_inside: nextInside };
+
+      if (nextInside) {
+        updateData.entered_at = now;
+      } else {
+        updateData.left_at = now;
+      }
+
+      // Обновляем в Supabase
+      const { error } = await db.from('plates').update(updateData).eq('plate', plate);
+      if (!error) {
+        car.is_inside = nextInside;
+        if (nextInside) car.entered_at = now; else car.left_at = now;
+        displayCarStatus(car, true);
+        updateStatusHeader();
+        renderFilteredList();
+      } else {
+        alert("Ошибка записи в базу: " + error.message);
       }
     }
 
-    // Управление списком и фильтрацией
+    function displayCarStatus(car, justTriggered = false) {
+      detailsBox.style.display = "block";
+      ownerView.innerText = car.name || "Без имени";
+      descView.innerText = `${car.car || '—'} • ${car.role || 'Допуск'}`;
+
+      if (car.is_inside) {
+        target.className = "plate-target granted";
+        statusTag.className = "tag-status tag-granted";
+        statusTag.innerText = justTriggered ? "ВЪЕЗД ЗАФИКСИРОВАН" : "НА ПЛОЩАДКЕ";
+        timeView.innerText = `Заезд: ${formatTime(car.entered_at)}`;
+        if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+      } else {
+        target.className = "plate-target exit";
+        statusTag.className = "tag-status tag-exit";
+        statusTag.innerText = justTriggered ? "ВЫЕЗД ЗАФИКСИРОВАН" : "ВЫЕХАЛ";
+        timeView.innerText = car.left_at ? `Выезд: ${formatTime(car.left_at)}` : "Еще не заезжал";
+        if (navigator.vibrate) navigator.vibrate([150]);
+      }
+    }
+
+    // Реестр автомобилей
     function openListModal() {
       document.getElementById('listModal').classList.add('open');
       renderFilteredList();
@@ -492,8 +545,17 @@
       container.innerHTML = list.map(item => `
         <div class="plate-item">
           <div class="plate-item-meta">
-            <span class="plate-item-number">${item.plate}</span>
-            <span class="plate-item-sub">${item.name || 'Гость'} • ${item.role || '—'}</span>
+            <div class="plate-item-number">
+              ${item.plate}
+              <span class="${item.is_inside ? 'badge-inside' : 'badge-outside'}">
+                ${item.is_inside ? 'НА ПАРКОВКЕ' : 'ВНЕ ПАРКОВКИ'}
+              </span>
+            </div>
+            <span class="plate-item-sub">
+              ${item.name || 'Гость'} • ${item.role || '—'}
+              ${item.entered_at ? ` | Заезд: ${formatTime(item.entered_at)}` : ''}
+              ${item.left_at ? ` | Выезд: ${formatTime(item.left_at)}` : ''}
+            </span>
           </div>
           <button class="btn-toggle-pass ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
             ${item.pass ? 'РАЗРЕШЕН' : 'ЗАПРЕЩЕН'}
@@ -502,14 +564,13 @@
       `).join('');
     }
 
-    // Быстрое переключение статуса пропуска прямо из списка
     async function togglePassStatus(plate, currentPass) {
       const nextPass = !currentPass;
       const { error } = await db.from('plates').update({ pass: nextPass }).eq('plate', plate);
       if (!error) {
         CARS_DB[plate].pass = nextPass;
         renderFilteredList();
-        if (plateView.innerText === plate) displayCarStatus(plate);
+        if (plateView.innerText === plate) displayCarStatus(CARS_DB[plate]);
       } else {
         alert("Ошибка обновления статуса: " + error.message);
       }
@@ -533,12 +594,15 @@
       saveBtn.disabled = true;
       saveBtn.innerText = "Запись...";
 
+      const now = new Date().toISOString();
       const newRecord = {
         plate: plate,
         name: oIn.value.trim() || "Внеплановый гость",
         role: mIn.value.trim() || "Добавлен на КПП",
         car: "—",
-        pass: true
+        pass: true,
+        is_inside: true, // Сразу отмечаем заехавшим
+        entered_at: now
       };
 
       const { error } = await db.from('plates').insert([newRecord]);
@@ -551,7 +615,7 @@
         pIn.value = ""; oIn.value = ""; mIn.value = "";
         closeModal();
         plateView.innerText = plate;
-        displayCarStatus(plate);
+        displayCarStatus(newRecord, true);
       }
     }
 
