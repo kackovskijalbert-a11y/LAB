@@ -78,23 +78,83 @@
       bottom: 18px;
       z-index: 5;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
       pointer-events: none;
-      gap: 10px;
     }
     .freeze-controls button {
-      background: rgba(15, 23, 42, 0.9);
+      background: rgba(15, 23, 42, 0.95);
       color: #f8fafc;
       border: 1px solid rgba(255, 255, 255, 0.18);
-      border-radius: 12px;
-      padding: 12px 20px;
-      font-size: 14px;
-      font-weight: 700;
+      border-radius: 14px;
+      padding: 15px 24px;
+      font-size: 15px;
+      font-weight: 800;
       cursor: pointer;
       pointer-events: auto;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      width: 100%;
+      max-width: 320px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .freeze-controls button:active { transform: scale(0.97); }
+
+    /* Стили анимаций и состояний кнопки */
+    #snapScanBtn {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #fff;
+      border: none;
+      box-shadow: 0 4px 20px rgba(56, 189, 248, 0.4);
+    }
+    #snapScanBtn.analyzing {
+      background: linear-gradient(135deg, #d97706, #fbbf24);
+      animation: pulseBtn 1s infinite ease-in-out;
+    }
+    #snapScanBtn.success {
+      background: linear-gradient(135deg, #059669, #10b981);
+      box-shadow: 0 4px 25px rgba(16, 185, 129, 0.6);
+    }
+    #resumeScanBtn {
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    @keyframes pulseBtn {
+      0% { transform: scale(1); opacity: 0.9; }
+      50% { transform: scale(1.02); opacity: 1; }
+      100% { transform: scale(1); opacity: 0.9; }
+    }
+
+    /* Приоритетный инфо-бейджик поверх кадра */
+    .vip-overlay-badge {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      z-index: 6;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 10px 14px;
+      border-radius: 12px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes slideDown {
+      from { transform: translateY(-10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .vip-overlay-title { font-size: 13px; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; }
+    .vip-overlay-sub { font-size: 12px; color: #cbd5e1; font-weight: 600; margin-top: 1px; }
 
     .plate-target {
       position: absolute;
@@ -218,11 +278,6 @@
       border: none;
       cursor: pointer;
       box-shadow: 0 4px 20px rgba(56, 189, 248, 0.5);
-    }
-    @keyframes pulseBtn {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.02); }
-      100% { transform: scale(1); }
     }
     .btn-action:active { transform: scale(0.97); }
 
@@ -655,12 +710,22 @@
   <div class="camera-viewport">
     <video id="v" autoplay playsinline muted></video>
     <img class="frozen-frame" id="frozenFrame" alt="Зафиксированный кадр автомобиля">
+    
+    <!-- Контекстный бейдж приоритета поверх кадра -->
+    <div class="vip-overlay-badge" id="vipOverlayBadge">
+      <div>
+        <div class="vip-overlay-title" id="vipOverlayTitle">VIP / Приоритет</div>
+        <div class="vip-overlay-sub" id="vipOverlaySub">—</div>
+      </div>
+      <span style="font-size: 18px;" id="vipOverlayIcon">⭐</span>
+    </div>
+
     <div class="plate-target" id="target">
       <span class="target-hint" id="targetHint">Наведите на номер</span>
     </div>
     <div class="freeze-controls">
-      <button id="snapScanBtn" type="button" onclick="captureAndScanManual()" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none;">📸 Сканировать</button>
-      <button id="resumeScanBtn" type="button" onclick="resumeScanning()" hidden>Продолжить</button>
+      <button id="snapScanBtn" type="button" onclick="captureAndScanManual()">📸 Сканировать номер</button>
+      <button id="resumeScanBtn" type="button" onclick="resumeScanning()" hidden>🔄 Новый сканированный кадр</button>
     </div>
   </div>
 
@@ -859,6 +924,7 @@
     const frozenFrame = document.getElementById('frozenFrame');
     const cameraViewport = document.querySelector('.camera-viewport');
     const resumeScanBtn = document.getElementById('resumeScanBtn');
+    const snapScanBtn = document.getElementById('snapScanBtn');
     const actionBtn = document.getElementById('actionBtn');
     const target = document.getElementById('target');
     const targetHint = document.getElementById('targetHint');
@@ -870,8 +936,9 @@
     const statusTag = document.getElementById('statusTag');
     const syncText = document.getElementById('syncText');
     const dot = document.getElementById('dot');
+    const vipOverlayBadge = document.getElementById('vipOverlayBadge');
 
-    // Синтезатор звука (Web Audio API)
+    // Синтезатор звука (Web Audio API) с расширенными паттернами
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playBeep(type) {
       if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -881,13 +948,23 @@
       gain.connect(audioCtx.destination);
 
       if (type === 'success') {
+        // Двойной короткий мягкий бип (штатный въезд)
         osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
         osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08);
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.25);
+      } else if (type === 'warning') {
+        // Монотонный глухой сигнал (уже внутри / повторный)
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(330, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
       } else {
+        // Резкая тревожная дробь (заблокирован / запрещен)
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(220, audioCtx.currentTime);
         osc.frequency.setValueAtTime(150, audioCtx.currentTime + 0.12);
@@ -1027,27 +1104,25 @@
     }
 
     function startContinuousScanning() {
-      // Отключено: сканирование происходит только по нажатию кнопки
+      // Отключено в пользу ручного сканирования по кнопке для экономии ресурсов
     }
 
-    // Ручной запуск распознавания по нажатию кнопки
+    // Ручной сканер с оптимизированным UI-индикатором и сверкой
     async function captureAndScanManual() {
       if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
       
-      const snapBtn = document.getElementById('snapScanBtn');
-      snapBtn.disabled = true;
-      snapBtn.innerText = "Распознавание...";
+      snapScanBtn.disabled = true;
+      snapScanBtn.className = "analyzing";
+      snapScanBtn.innerHTML = "⚡ Анализ кадра...";
 
       try {
         isOcrBusy = true;
         
-        // 1. Делаем мгновенный стоп-кадр для отображения
         const photoUrl = captureCurrentSnapshot();
         if (photoUrl) {
           frozenFrame.src = photoUrl;
         }
 
-        // 2. Обрабатываем кадр (кроп и бинаризация)
         const vW = v.videoWidth;
         const vH = v.videoHeight;
         const cropW = Math.floor(vW * 0.85);
@@ -1094,32 +1169,32 @@
         }
         ctx.putImageData(imgData, 0, 0);
 
-        // 3. Распознаем текст через Tesseract
         const { data: { text } } = await tesseractWorker.recognize(c);
         const plate = resolveOcrPlate(text);
 
         if (plate) {
           detectedPlate = plate;
           
-          // 4. Фиксируем кадр окончательно и проверяем по базе
           isFrameFrozen = true;
           v.pause();
           cameraViewport.classList.add('is-frozen');
-          snapBtn.hidden = true;
+          snapScanBtn.hidden = true;
           resumeScanBtn.hidden = false;
           targetHint.innerText = 'Номер успешно распознан';
 
           evaluatePlateMatch(plate);
         } else {
-          alert("Номер не удалось четко распознать. Выровняйте номер в рамке и повторите.");
-          snapBtn.disabled = false;
-          snapBtn.innerText = "📸 Сканировать";
+          snapScanBtn.className = "";
+          snapScanBtn.disabled = false;
+          snapScanBtn.innerHTML = "📸 Сканировать номер";
+          alert("Номер не удалось четко распознать. Выровняйте номер по центру рамки и повторите.");
         }
 
       } catch (err) {
         console.error("Manual scan error:", err);
-        snapBtn.disabled = false;
-        snapBtn.innerText = "📸 Сканировать";
+        snapScanBtn.className = "";
+        snapScanBtn.disabled = false;
+        snapScanBtn.innerHTML = "📸 Сканировать номер";
       } finally {
         isOcrBusy = false;
       }
@@ -1130,11 +1205,12 @@
       frozenFrame.removeAttribute('src');
       cameraViewport.classList.remove('is-frozen');
       resumeScanBtn.hidden = true;
+      vipOverlayBadge.style.display = 'none';
       
-      const snapBtn = document.getElementById('snapScanBtn');
-      snapBtn.hidden = false;
-      snapBtn.disabled = false;
-      snapBtn.innerText = "📸 Сканировать";
+      snapScanBtn.hidden = false;
+      snapScanBtn.disabled = false;
+      snapScanBtn.className = "";
+      snapScanBtn.innerHTML = "📸 Сканировать номер";
 
       resetRecognitionState();
       v.play().catch(err => console.error('Camera resume error:', err));
@@ -1145,6 +1221,30 @@
         if (isFrameFrozen || barcodeScanBusy || !v.videoWidth) return;
         await scanBarcode();
       }, 300);
+    }
+
+    async function scanBarcode() {
+      if (!barcodeDetector || barcodeScanBusy || !v.videoWidth) return;
+      barcodeScanBusy = true;
+      try {
+        const codes = await barcodeDetector.detect(v);
+        const value = codes.find(code => code.rawValue)?.rawValue;
+        const plate = resolveOcrPlate(value);
+        if (plate && plate !== detectedPlate) {
+          detectedPlate = plate;
+          isFrameFrozen = true;
+          v.pause();
+          cameraViewport.classList.add('is-frozen');
+          snapScanBtn.hidden = true;
+          resumeScanBtn.hidden = false;
+          targetHint.innerText = 'Пропуск распознан';
+          evaluatePlateMatch(plate);
+        }
+      } catch (err) {
+        console.warn('Barcode scan error:', err);
+      } finally {
+        barcodeScanBusy = false;
+      }
     }
 
     function captureCurrentSnapshot() {
@@ -1317,39 +1417,29 @@
       }
     }
 
-    async function scanBarcode() {
-      if (!barcodeDetector || barcodeScanBusy || !v.videoWidth) return;
-      barcodeScanBusy = true;
-      try {
-        const codes = await barcodeDetector.detect(v);
-        const value = codes.find(code => code.rawValue)?.rawValue;
-        const plate = resolveOcrPlate(value);
-        if (plate && plate !== detectedPlate) {
-          detectedPlate = plate;
-          isFrameFrozen = true;
-          v.pause();
-          cameraViewport.classList.add('is-frozen');
-          document.getElementById('snapScanBtn').hidden = true;
-          resumeScanBtn.hidden = false;
-          targetHint.innerText = 'Пропуск распознан';
-          evaluatePlateMatch(plate);
-        }
-      } catch (err) {
-        console.warn('Barcode scan error:', err);
-      } finally {
-        barcodeScanBusy = false;
-      }
-    }
-
     function evaluatePlateMatch(plate) {
       plateView.innerText = plate;
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
 
+      snapScanBtn.className = "success";
+      snapScanBtn.innerHTML = "✔ Успешно распознано";
+
       if (car && car.pass) {
         ownerView.innerText = car.name || "Без имени";
         descView.innerText = `${car.car && car.car !== '—' ? car.car + ' • ' : ''}${car.role || 'Допуск'}`;
         
+        // Отображение приоритетного бейджа прямо над кадром для Охраны / VIP / Организаторов
+        const roleLower = (car.role || '').toLowerCase();
+        if (roleLower.includes('охрана') || roleLower.includes('чоп') || roleLower.includes('орг') || roleLower.includes('дир')) {
+          vipOverlayBadge.style.display = 'flex';
+          document.getElementById('vipOverlayTitle').innerText = roleLower.includes('охрана') ? '🛡️ Безопасность / ЧОП' : '⭐ Приоритет / Дирекция';
+          document.getElementById('vipOverlaySub').innerText = `${car.name || 'Сотрудник'} (${car.car || 'Служебный'})`;
+          document.getElementById('vipOverlayIcon').innerText = roleLower.includes('охрана') ? '🛡️' : '⭐';
+        } else {
+          vipOverlayBadge.style.display = 'none';
+        }
+
         if (!car.is_inside) {
           target.className = "plate-target granted";
           targetHint.innerText = "Автомобиль в базе — можно запускать";
@@ -1360,19 +1450,20 @@
           actionBtn.disabled = false;
           actionBtn.className = "btn-action ready-enter";
           actionBtn.innerText = "ПРОПУСТИТЬ АВТОМОБИЛЬ";
+          playBeep('success');
         } else {
           target.className = "plate-target exit";
-          targetHint.innerText = "Автомобиль на территории";
+          targetHint.innerText = "Автомобиль уже на территории";
           statusTag.className = "tag-status tag-exit";
-          statusTag.innerText = "НА ТЕРРИТОРИИ";
+          statusTag.innerText = "УЖЕ НА ТЕРРИТОРИИ";
           timeView.innerText = `Заезд: ${formatTime(car.entered_at)}`;
           
           actionBtn.disabled = false;
           actionBtn.className = "btn-action ready-exit";
           actionBtn.innerText = "ОТМЕТИТЬ ВЫЕЗД";
+          playBeep('warning');
         }
 
-        playBeep('success');
         if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
       } else {
         target.className = "plate-target denied";
@@ -1382,6 +1473,7 @@
         timeView.innerText = "";
         statusTag.className = "tag-status tag-denied";
         statusTag.innerText = "ПРОЕЗД ЗАПРЕЩЕН";
+        vipOverlayBadge.style.display = 'none';
 
         actionBtn.disabled = true;
         actionBtn.className = "btn-action";
@@ -1398,6 +1490,7 @@
       detailsBox.style.display = "none";
       target.className = "plate-target";
       targetHint.innerText = "Наведите на номер";
+      vipOverlayBadge.style.display = 'none';
       actionBtn.disabled = true;
       actionBtn.className = "btn-action";
       actionBtn.innerText = "ОЖИДАНИЕ АВТОМОБИЛЯ";
