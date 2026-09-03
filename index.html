@@ -1208,15 +1208,14 @@
 
         const vW = v.videoWidth;
         const vH = v.videoHeight;
-        const cropW = Math.floor(vW * 0.85);
-        const cropH = Math.floor(cropW / 4.6);
-        const cropX = Math.floor((vW - cropW) / 2);
-        const cropY = Math.floor((vH - cropH) / 2);
+        const scale = Math.min(1, 1280 / vW);
+        const cropW = Math.max(1, Math.floor(vW * scale));
+        const cropH = Math.max(1, Math.floor(vH * scale));
 
         c.width = cropW;
         c.height = cropH;
         const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        ctx.drawImage(v, 0, 0, vW, vH, 0, 0, cropW, cropH);
 
         const imgData = ctx.getImageData(0, 0, cropW, cropH);
         const d = imgData.data;
