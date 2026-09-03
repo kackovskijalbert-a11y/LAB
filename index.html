@@ -25,7 +25,7 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       z-index: 20;
     }
-    .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #94a3b8; }
+    .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #94a3b8; cursor: pointer; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e; }
     .header-actions { display: flex; gap: 8px; }
     .offline-badge { color: #fbbf24; }
@@ -638,7 +638,7 @@
 <body>
 
   <div class="top-bar">
-    <div class="sync-info">
+    <div class="sync-info" onclick="forceManualSync()" title="Нажмите для принудительной синхронизации">
       <span class="status-dot" id="dot"></span>
       <span id="syncText">База: связь...</span>
     </div>
@@ -846,6 +846,33 @@
     const syncText = document.getElementById('syncText');
     const dot = document.getElementById('dot');
 
+    // Синтезатор звука (Web Audio API) для оповещений без внешних файлов
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playBeep(type) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      if (type === 'success') {
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08); // A5
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.25);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.35);
+      }
+    }
+
     function openLocalDb() {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open('kpp-offline-cache', 1);
@@ -926,6 +953,12 @@
         if (log) { log.synced = true; await idbPut('logs', log); }
       }
       renderShiftLogs();
+    }
+
+    async function forceManualSync() {
+      syncText.innerText = "Синхронизация...";
+      await syncPendingActions();
+      await initCloud();
     }
 
     async function recordVehicleAction(plate, nextInside, expectedInside) {
@@ -1029,9 +1062,10 @@
       const { data, error } = await db.from('plates').select('*').order('created_at', { ascending: false });
       
       if (error) {
-        syncText.innerText = "Офлайн";
+        syncText.innerText = "Офлайн · локальная база";
         dot.style.background = "#ef4444";
         dot.style.boxShadow = "0 0 10px #ef4444";
+        syncText.classList.add('offline-badge');
         await loadLocalCache();
         return;
       }
@@ -1041,6 +1075,8 @@
       await cacheCars();
       updateStatusHeader();
       syncText.classList.remove('offline-badge');
+      dot.style.background = "#22c55e";
+      dot.style.boxShadow = "0 0 10px #22c55e";
       await syncPendingActions();
 
       if (realtimeChannel) {
@@ -1080,7 +1116,9 @@
       const inside = items.filter(x => x.is_inside).length;
       const pending = total - inside;
 
-      syncText.innerText = `Внутри: ${inside} • Осталось: ${pending}`;
+      if (navigator.onLine) {
+        syncText.innerText = `Внутри: ${inside} • Осталось: ${pending}`;
+      }
       document.getElementById('badgeAll').innerText = total;
       document.getElementById('badgeInside').innerText = inside;
       document.getElementById('badgePending').innerText = pending;
@@ -1272,6 +1310,7 @@
           actionBtn.innerText = "ОТМЕТИТЬ ВЫЕЗД";
         }
 
+        playBeep('success');
         if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
       } else {
         target.className = "plate-target denied";
@@ -1286,6 +1325,7 @@
         actionBtn.className = "btn-action";
         actionBtn.innerText = "ПРОЕЗД ЗАПРЕЩЕН";
 
+        playBeep('error');
         if (navigator.vibrate) navigator.vibrate(300);
       }
     }
@@ -1741,6 +1781,8 @@
     window.addEventListener('offline', () => {
       syncText.innerText = 'Офлайн · локальная база';
       syncText.classList.add('offline-badge');
+      dot.style.background = "#ef4444";
+      dot.style.boxShadow = "0 0 10px #ef4444";
     });
     initBarcodeDetector();
     startBarcodeScanning();
