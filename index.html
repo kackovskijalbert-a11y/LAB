@@ -735,6 +735,7 @@
     let selectedDetailPlate = null;
     let tesseractWorker = null;
     let activeFilter = 'all';
+    let realtimeChannel = null;
 
     const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
     const CHAR_CONVERT = {
@@ -830,7 +831,11 @@
       data.forEach(item => { CARS_DB[item.plate] = item; });
       updateStatusHeader();
 
-      db.channel('realtime:plates')
+      if (realtimeChannel) {
+        await db.removeChannel(realtimeChannel);
+      }
+
+      realtimeChannel = db.channel('realtime:plates')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'plates' }, payload => {
           if (payload.eventType === 'DELETE') {
             const oldPlate = payload.old.plate;
@@ -873,7 +878,8 @@
     }
 
     async function scanFrame() {
-      isOcrBusy = true;
+      try {
+        isOcrBusy = true;
       const vW = v.videoWidth;
       const vH = v.videoHeight;
       const cropW = Math.floor(vW * 0.85);
@@ -919,6 +925,11 @@
         d[i] = d[i+1] = d[i+2] = val;
       }
       ctx.putImageData(imgData, 0, 0);
+      } catch (err) {
+        console.error("Frame processing error:", err);
+        isOcrBusy = false;
+        return;
+      }
 
       try {
         const { data: { text } } = await tesseractWorker.recognize(c);
@@ -1009,17 +1020,21 @@
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
       
-      const { error } = await db.from('plates').update({
+      const { data, error } = await db.from('plates').update({
         is_inside: nextInside,
         ...(nextInside ? { entered_at: now } : { left_at: now })
-      }).eq('plate', detectedPlate);
+      }).eq('plate', detectedPlate).eq('is_inside', car.is_inside).select('plate');
 
-      if (!error) {
+      if (!error && data && data.length === 1) {
         car.is_inside = nextInside;
         if (nextInside) car.entered_at = now; else car.left_at = now;
         evaluatePlateMatch(detectedPlate);
         updateStatusHeader();
         renderFilteredList();
+      } else if (!error) {
+        alert("Состояние автомобиля уже изменилось. Обновите данные и повторите действие.");
+        await initCloud();
+        evaluatePlateMatch(detectedPlate);
       } else {
         alert("Ошибка: " + error.message);
         actionBtn.disabled = false;
@@ -1109,17 +1124,23 @@
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
       
-      const { error } = await db.from('plates').update({
+      const { data, error } = await db.from('plates').update({
         is_inside: nextInside,
         ...(nextInside ? { entered_at: now } : { left_at: now })
-      }).eq('plate', selectedDetailPlate);
+      }).eq('plate', selectedDetailPlate).eq('is_inside', car.is_inside).select('plate');
 
-      if (!error) {
+      if (!error && data && data.length === 1) {
         car.is_inside = nextInside;
         if (nextInside) car.entered_at = now; else car.left_at = now;
         renderDetailModal(car);
         updateStatusHeader();
         renderFilteredList();
+      } else if (!error) {
+        alert("Состояние автомобиля уже изменилось. Обновите данные и повторите действие.");
+        await initCloud();
+        if (selectedDetailPlate && CARS_DB[selectedDetailPlate]) {
+          renderDetailModal(CARS_DB[selectedDetailPlate]);
+        }
       } else {
         alert("Ошибка: " + error.message);
       }
@@ -1289,6 +1310,17 @@
         return p.includes(q) || n.includes(q) || r.includes(q) || c.includes(q);
       });
 
+      const escapeHtml = value => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+      const escapeJsString = value => String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/[\r\n]/g, ' ');
+
       if (list.length === 0) {
         let emptyLabel = 'Ничего не найдено';
         if (!q) {
@@ -1300,29 +1332,29 @@
       }
 
       container.innerHTML = list.map(item => `
-        <div class="car-row-card" onclick="openDetailModal('${item.plate}')">
+        <div class="car-row-card" onclick="openDetailModal('${escapeJsString(item.plate)}')">
           <div class="car-info-col">
             <div class="car-header-line">
-              <div class="plate-badge-rus">${item.plate}</div>
+              <div class="plate-badge-rus">${escapeHtml(item.plate)}</div>
               <span class="status-dot-pill ${item.is_inside ? 'pill-inside' : 'pill-outside'}">
                 ${item.is_inside ? 'Внутри' : 'Ожидается'}
               </span>
             </div>
             <div class="car-sub-text">
-              ${item.name || 'Гость'} ${item.car && item.car !== '—' ? '• ' + item.car : ''} ${item.role ? '• ' + item.role : ''}
+              ${escapeHtml(item.name || 'Гость')} ${item.car && item.car !== '—' ? '• ' + escapeHtml(item.car) : ''} ${item.role ? '• ' + escapeHtml(item.role) : ''}
             </div>
             ${item.entered_at || item.left_at ? `
               <div class="car-time-text">
-                ${item.entered_at ? 'Заезд: ' + formatTime(item.entered_at) : ''}
+                ${item.entered_at ? 'Заезд: ' + escapeHtml(formatTime(item.entered_at)) : ''}
                 ${item.left_at ? ' | Выезд: ' + formatTime(item.left_at) : ''}
               </div>
             ` : ''}
           </div>
           <div class="car-actions-col" onclick="event.stopPropagation()">
-            <button class="btn-status-pill ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${item.plate}', ${item.pass})">
+            <button class="btn-status-pill ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${escapeJsString(item.plate)}', ${item.pass})">
               ${item.pass ? 'Допуск' : 'Блок'}
             </button>
-            <button class="btn-trash-icon" title="Удалить" onclick="deleteCar('${item.plate}')">
+            <button class="btn-trash-icon" title="Удалить" onclick="deleteCar('${escapeJsString(item.plate)}')">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
             </button>
           </div>
@@ -1364,8 +1396,8 @@
       const newRecord = {
         plate: plate,
         name: oIn.value.trim() || "Гость",
-        role: mIn.value.trim() || "Внеплановый",
-        car: "—",
+        role: "Внеплановый",
+        car: mIn.value.trim() || "—",
         pass: true,
         is_inside: false
       };
