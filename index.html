@@ -28,6 +28,7 @@
     .sync-info { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #94a3b8; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e; }
     .header-actions { display: flex; gap: 8px; }
+    .offline-badge { color: #fbbf24; }
     
     .btn-icon {
       background: rgba(255, 255, 255, 0.06);
@@ -58,9 +59,45 @@
       overflow: hidden;
     }
     video { width: 100%; height: 100%; object-fit: cover; }
+    .frozen-frame {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      z-index: 2;
+    }
+    .camera-viewport.is-frozen .frozen-frame { display: block; }
+    .camera-viewport.is-frozen video { visibility: hidden; }
+
+    .freeze-controls {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      bottom: 18px;
+      z-index: 5;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .freeze-controls button {
+      background: rgba(15, 23, 42, 0.9);
+      color: #f8fafc;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      padding: 11px 16px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .freeze-controls button:active { transform: scale(0.97); }
 
     .plate-target {
       position: absolute;
+      z-index: 3;
       width: 86%;
       max-width: 360px;
       aspect-ratio: 52 / 11.2;
@@ -213,6 +250,16 @@
       max-height: 88vh;
       animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
+    .log-modal { max-height: 88vh; }
+    .log-toolbar { display: flex; gap: 8px; }
+    .log-toolbar input { min-width: 0; flex: 1.2; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: #fff; padding: 9px 10px; border-radius: 10px; font-size: 12px; }
+    .log-toolbar button { flex: 1; }
+    .log-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 12px; }
+    .log-main { min-width: 0; }
+    .log-plate { font-weight: 800; color: #fff; }
+    .log-meta { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+    .log-sync { flex-shrink: 0; color: #4ade80; font-size: 11px; font-weight: 700; }
+    .log-sync.pending { color: #fbbf24; }
     @keyframes slideUp {
       from { transform: translateY(100%); }
       to { transform: translateY(0); }
@@ -598,14 +645,19 @@
     <div class="header-actions">
       <button class="btn-icon" id="torchBtn" onclick="toggleTorch()">🔦 Свет</button>
       <button class="btn-icon btn-list" onclick="openListModal()">📋 Список</button>
+      <button class="btn-icon" onclick="openLogModal()">🧾 Журнал</button>
       <button class="btn-icon btn-manual" onclick="openModal()">➕ Авто</button>
     </div>
   </div>
 
   <div class="camera-viewport">
     <video id="v" autoplay playsinline muted></video>
+    <img class="frozen-frame" id="frozenFrame" alt="Зафиксированный кадр автомобиля">
     <div class="plate-target" id="target">
       <span class="target-hint" id="targetHint">Наведите на номер</span>
+    </div>
+    <div class="freeze-controls">
+      <button id="resumeScanBtn" type="button" onclick="resumeScanning()" hidden>Продолжить сканирование</button>
     </div>
   </div>
 
@@ -719,7 +771,24 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="logModal" onclick="handleBackdropClick(event)">
+    <div class="sheet-modal log-modal">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">Журнал смены</div>
+        <button class="btn-close-circle" onclick="closeLogModal()">✕</button>
+      </div>
+      <div class="log-toolbar">
+        <input class="search-input-box" id="operatorInput" type="text" placeholder="Имя оператора" onchange="saveOperatorName(this.value)">
+        <button class="btn-import-pill" onclick="exportShiftLogs()">Скачать CSV</button>
+        <button class="btn-icon" onclick="clearShiftLogs()">Очистить</button>
+      </div>
+      <div class="plate-list-container" id="logListContainer"></div>
+    </div>
+  </div>
+
   <canvas id="c"></canvas>
+  <canvas id="snapshotCanvas"></canvas>
 
   <script>
     const SUPABASE_URL = 'https://ymabfkywnfaqlxdmxftt.supabase.co';
@@ -736,8 +805,15 @@
     let tesseractWorker = null;
     let activeFilter = 'all';
     let realtimeChannel = null;
+    let isFrameFrozen = false;
+    let barcodeDetector = null;
+    let barcodeScanBusy = false;
+    let dbReady = null;
+    let pendingActions = [];
+    let shiftLogs = [];
+    let operatorName = localStorage.getItem('kpp_operator') || 'Оператор КПП';
 
-    const PLATE_REGEX = /[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}/;
+    const PLATE_REGEX = /^(?:[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}|\d{4}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}|[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{6})$/;
     const CHAR_CONVERT = {
       'A':'А', 'B':'В', 'E':'Е', 'K':'К', 'M':'М', 'H':'Н',
       'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
@@ -754,6 +830,10 @@
 
     const v = document.getElementById('v');
     const c = document.getElementById('c');
+    const snapshotCanvas = document.getElementById('snapshotCanvas');
+    const frozenFrame = document.getElementById('frozenFrame');
+    const cameraViewport = document.querySelector('.camera-viewport');
+    const resumeScanBtn = document.getElementById('resumeScanBtn');
     const actionBtn = document.getElementById('actionBtn');
     const target = document.getElementById('target');
     const targetHint = document.getElementById('targetHint');
@@ -765,6 +845,104 @@
     const statusTag = document.getElementById('statusTag');
     const syncText = document.getElementById('syncText');
     const dot = document.getElementById('dot');
+
+    function openLocalDb() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('kpp-offline-cache', 1);
+        request.onupgradeneeded = () => {
+          const database = request.result;
+          if (!database.objectStoreNames.contains('cars')) database.createObjectStore('cars', { keyPath: 'plate' });
+          if (!database.objectStoreNames.contains('actions')) database.createObjectStore('actions', { keyPath: 'id' });
+          if (!database.objectStoreNames.contains('logs')) database.createObjectStore('logs', { keyPath: 'id' });
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    function idbRead(storeName) {
+      return dbReady.then(database => new Promise((resolve, reject) => {
+        const request = database.transaction(storeName, 'readonly').objectStore(storeName).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+      }));
+    }
+
+    function idbPut(storeName, value) {
+      return dbReady.then(database => new Promise((resolve, reject) => {
+        const request = database.transaction(storeName, 'readwrite').objectStore(storeName).put(value);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      }));
+    }
+
+    function idbDelete(storeName, key) {
+      return dbReady.then(database => new Promise((resolve, reject) => {
+        const request = database.transaction(storeName, 'readwrite').objectStore(storeName).delete(key);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      }));
+    }
+
+    function idbClear(storeName) {
+      return dbReady.then(database => new Promise((resolve, reject) => {
+        const request = database.transaction(storeName, 'readwrite').objectStore(storeName).clear();
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      }));
+    }
+
+    async function cacheCars() {
+      await Promise.all(Object.values(CARS_DB).map(car => idbPut('cars', car)));
+    }
+
+    async function loadLocalCache() {
+      const [cars, actions, logs] = await Promise.all([idbRead('cars'), idbRead('actions'), idbRead('logs')]);
+      if (cars.length && !Object.keys(CARS_DB).length) {
+        CARS_DB = Object.fromEntries(cars.map(car => [car.plate, car]));
+        updateStatusHeader();
+        renderFilteredList();
+      }
+      pendingActions = actions;
+      shiftLogs = logs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      renderShiftLogs();
+    }
+
+    async function queueAction(action) {
+      pendingActions.push(action);
+      await idbPut('actions', action);
+      await syncPendingActions();
+    }
+
+    async function syncPendingActions() {
+      if (!navigator.onLine || !pendingActions.length) return;
+      for (const action of [...pendingActions]) {
+        const { data, error } = await db.from('plates').update(action.patch)
+          .eq('plate', action.plate).eq('is_inside', action.expectedInside).select('plate');
+        if (error || !data || data.length !== 1) continue;
+        pendingActions = pendingActions.filter(item => item.id !== action.id);
+        await idbDelete('actions', action.id);
+        const log = shiftLogs.find(item => item.id === action.logId);
+        if (log) { log.synced = true; await idbPut('logs', log); }
+      }
+      renderShiftLogs();
+    }
+
+    async function recordVehicleAction(plate, nextInside, expectedInside) {
+      const now = new Date().toISOString();
+      const log = { id: crypto.randomUUID(), logId: crypto.randomUUID(), plate, action: nextInside ? 'Въезд' : 'Выезд', operator: operatorName, createdAt: now, synced: false };
+      log.id = log.logId;
+      const action = { id: crypto.randomUUID(), logId: log.logId, plate, expectedInside, patch: nextInside ? { is_inside: true, entered_at: now } : { is_inside: false, left_at: now } };
+      const car = CARS_DB[plate];
+      Object.assign(car, action.patch);
+      shiftLogs.unshift(log);
+      await idbPut('logs', log);
+      await queueAction(action);
+      updateStatusHeader();
+      renderFilteredList();
+      renderShiftLogs();
+      evaluatePlateMatch(plate);
+    }
 
     async function startCamera() {
       try {
@@ -793,9 +971,39 @@
 
     function startContinuousScanning() {
       setInterval(async () => {
-        if (isOcrBusy || !v.videoWidth || !tesseractWorker) return;
+        if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
         await scanFrame();
       }, 450);
+    }
+    function startBarcodeScanning() {
+      setInterval(async () => {
+        if (isFrameFrozen || barcodeScanBusy || !v.videoWidth) return;
+        await scanBarcode();
+      }, 250);
+    }
+
+    function triggerFreezeFrame() {
+      if (isFrameFrozen || !v.videoWidth || !v.videoHeight) return;
+
+      snapshotCanvas.width = v.videoWidth;
+      snapshotCanvas.height = v.videoHeight;
+      const snapshotContext = snapshotCanvas.getContext('2d');
+      snapshotContext.drawImage(v, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+      frozenFrame.src = snapshotCanvas.toDataURL('image/jpeg', 0.9);
+      isFrameFrozen = true;
+      v.pause();
+      cameraViewport.classList.add('is-frozen');
+      resumeScanBtn.hidden = false;
+      targetHint.innerText = 'Кадр зафиксирован';
+    }
+
+    function resumeScanning() {
+      isFrameFrozen = false;
+      frozenFrame.removeAttribute('src');
+      cameraViewport.classList.remove('is-frozen');
+      resumeScanBtn.hidden = true;
+      resetRecognitionState();
+      v.play().catch(err => console.error('Camera resume error:', err));
     }
 
     async function toggleTorch() {
@@ -824,12 +1032,16 @@
         syncText.innerText = "Офлайн";
         dot.style.background = "#ef4444";
         dot.style.boxShadow = "0 0 10px #ef4444";
+        await loadLocalCache();
         return;
       }
 
       CARS_DB = {};
       data.forEach(item => { CARS_DB[item.plate] = item; });
+      await cacheCars();
       updateStatusHeader();
+      syncText.classList.remove('offline-badge');
+      await syncPendingActions();
 
       if (realtimeChannel) {
         await db.removeChannel(realtimeChannel);
@@ -852,6 +1064,7 @@
           const row = payload.new;
           if (row && row.plate) {
             CARS_DB[row.plate] = row;
+            idbPut('cars', row).catch(console.error);
             updateStatusHeader();
             renderFilteredList();
             if (detectedPlate === row.plate) evaluatePlateMatch(row.plate);
@@ -877,6 +1090,56 @@
       return (raw || '').toString().replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
     }
 
+    function resolveOcrPlate(rawText) {
+      const cleaned = (rawText || '').toString().toUpperCase().replace(/[^А-ЯA-Z0-9]/g, '');
+      const candidates = cleaned.match(/[АВЕКМНОРСТУХABEKMHOPCTYX0-9]{8,9}/g) || [];
+      const letterOptions = {
+        '0': ['О'], 'O': ['О'], 'О': ['О'], 'A': ['А', 'О'], 'А': ['А', 'О'],
+        'B': ['В'], 'В': ['В'], 'E': ['Е'], 'Е': ['Е'], 'K': ['К'], 'К': ['К'],
+        'M': ['М'], 'М': ['М'], 'H': ['Н'], 'Н': ['Н'], 'P': ['Р'], 'Р': ['Р'],
+        'C': ['С'], 'С': ['С'], 'T': ['Т'], 'Т': ['Т'], 'Y': ['У'], 'У': ['У'],
+        'X': ['Х'], 'Х': ['Х']
+      };
+
+      const formats = [
+        { regex: /^[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}$/, letterPositions: [0, 4, 5], digitPositions: [1, 2, 3, 6, 7, 8] },
+        { regex: /^\d{4}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}$/, letterPositions: [4, 5], digitPositions: [0, 1, 2, 3, 6, 7, 8] },
+        { regex: /^[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{6}$/, letterPositions: [0, 1], digitPositions: [2, 3, 4, 5, 6, 7] }
+      ];
+
+      for (const candidate of candidates) {
+        const plateLength = candidate.length;
+        const plateFormat = formats.find(format => format.regex.test(candidate));
+        if (!plateFormat) continue;
+        const { letterPositions, digitPositions } = plateFormat;
+        const variants = [''];
+
+        for (let index = 0; index < plateLength; index++) {
+          const options = letterPositions.includes(index)
+            ? (letterOptions[candidate[index]] || [candidate[index]])
+            : digitPositions.includes(index)
+              ? (/[ОO]/.test(candidate[index]) ? ['0'] : [candidate[index]])
+              : [candidate[index]];
+          const variantCount = variants.length;
+          for (let variantIndex = 0; variantIndex < variantCount; variantIndex++) {
+            const prefix = variants[variantIndex];
+            variants[variantIndex] = prefix + options[0];
+            for (let optionIndex = 1; optionIndex < options.length; optionIndex++) {
+              variants.push(prefix + options[optionIndex]);
+            }
+          }
+        }
+
+        const matchingVariant = variants.map(sanitizePlate).find(plate => CARS_DB[plate]);
+        if (matchingVariant) return matchingVariant;
+
+        const formatted = sanitizePlate(candidate);
+        if (PLATE_REGEX.test(formatted)) return formatted;
+      }
+
+      return null;
+    }
+
     async function scanFrame() {
       try {
         isOcrBusy = true;
@@ -889,7 +1152,7 @@
 
       c.width = cropW;
       c.height = cropH;
-      const ctx = c.getContext('2d');
+      const ctx = c.getContext('2d', { willReadFrequently: true });
       ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
       const imgData = ctx.getImageData(0, 0, cropW, cropH);
@@ -933,19 +1196,48 @@
 
       try {
         const { data: { text } } = await tesseractWorker.recognize(c);
-        const cleaned = text.toUpperCase().replace(/[^А-ЯA-Z0-9]/g, '');
-        const match = cleaned.match(PLATE_REGEX);
+        const plate = resolveOcrPlate(text);
 
-        if (match) {
-          const plate = sanitizePlate(match[0]);
+        if (plate) {
           if (plate !== detectedPlate) {
             detectedPlate = plate;
             evaluatePlateMatch(plate);
+            triggerFreezeFrame();
           }
         }
       } catch (err) {
       } finally {
         isOcrBusy = false;
+      }
+    }
+
+    async function initBarcodeDetector() {
+      if (!('BarcodeDetector' in window)) return;
+      try {
+        const formats = await BarcodeDetector.getSupportedFormats();
+        const wanted = formats.filter(format => ['qr_code', 'code_128', 'code_39', 'data_matrix', 'aztec'].includes(format));
+        barcodeDetector = new BarcodeDetector({ formats: wanted.length ? wanted : formats });
+      } catch (err) {
+        console.warn('BarcodeDetector unavailable:', err);
+      }
+    }
+
+    async function scanBarcode() {
+      if (!barcodeDetector || barcodeScanBusy || !v.videoWidth) return;
+      barcodeScanBusy = true;
+      try {
+        const codes = await barcodeDetector.detect(v);
+        const value = codes.find(code => code.rawValue)?.rawValue;
+        const plate = resolveOcrPlate(value);
+        if (plate && plate !== detectedPlate) {
+          detectedPlate = plate;
+          evaluatePlateMatch(plate);
+          triggerFreezeFrame();
+        }
+      } catch (err) {
+        console.warn('Barcode scan error:', err);
+      } finally {
+        barcodeScanBusy = false;
       }
     }
 
@@ -1020,25 +1312,8 @@
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
       
-      const { data, error } = await db.from('plates').update({
-        is_inside: nextInside,
-        ...(nextInside ? { entered_at: now } : { left_at: now })
-      }).eq('plate', detectedPlate).eq('is_inside', car.is_inside).select('plate');
-
-      if (!error && data && data.length === 1) {
-        car.is_inside = nextInside;
-        if (nextInside) car.entered_at = now; else car.left_at = now;
-        evaluatePlateMatch(detectedPlate);
-        updateStatusHeader();
-        renderFilteredList();
-      } else if (!error) {
-        alert("Состояние автомобиля уже изменилось. Обновите данные и повторите действие.");
-        await initCloud();
-        evaluatePlateMatch(detectedPlate);
-      } else {
-        alert("Ошибка: " + error.message);
-        actionBtn.disabled = false;
-      }
+      await recordVehicleAction(detectedPlate, nextInside, car.is_inside);
+      actionBtn.disabled = false;
     }
 
     async function deleteCar(plate) {
@@ -1124,26 +1399,8 @@
       const now = new Date().toISOString();
       const nextInside = !car.is_inside;
       
-      const { data, error } = await db.from('plates').update({
-        is_inside: nextInside,
-        ...(nextInside ? { entered_at: now } : { left_at: now })
-      }).eq('plate', selectedDetailPlate).eq('is_inside', car.is_inside).select('plate');
-
-      if (!error && data && data.length === 1) {
-        car.is_inside = nextInside;
-        if (nextInside) car.entered_at = now; else car.left_at = now;
-        renderDetailModal(car);
-        updateStatusHeader();
-        renderFilteredList();
-      } else if (!error) {
-        alert("Состояние автомобиля уже изменилось. Обновите данные и повторите действие.");
-        await initCloud();
-        if (selectedDetailPlate && CARS_DB[selectedDetailPlate]) {
-          renderDetailModal(CARS_DB[selectedDetailPlate]);
-        }
-      } else {
-        alert("Ошибка: " + error.message);
-      }
+      await recordVehicleAction(selectedDetailPlate, nextInside, car.is_inside);
+      renderDetailModal(CARS_DB[selectedDetailPlate]);
     }
 
     async function toggleDetailAccess() {
@@ -1180,7 +1437,7 @@
         }
 
         const formattedRecords = [];
-        const PLATE_REGEX_CHECK = /^[А-ЯA-Z]\d{3}[А-ЯA-Z]{2}\d{2,3}$/;
+        const PLATE_REGEX_CHECK = PLATE_REGEX;
 
         rawRows.forEach(row => {
           if (!Array.isArray(row) || row.length === 0) return;
@@ -1277,9 +1534,63 @@
       document.getElementById('listModal').classList.remove('open');
     }
 
+    function openLogModal() {
+      document.getElementById('logModal').classList.add('open');
+      document.getElementById('operatorInput').value = operatorName;
+      renderShiftLogs();
+    }
+
+    function saveOperatorName(value) {
+      operatorName = value.trim() || 'Оператор КПП';
+      localStorage.setItem('kpp_operator', operatorName);
+      document.getElementById('operatorInput').value = operatorName;
+    }
+
+    function closeLogModal() {
+      document.getElementById('logModal').classList.remove('open');
+    }
+
+    function renderShiftLogs() {
+      const container = document.getElementById('logListContainer');
+      if (!container) return;
+      const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+      if (!shiftLogs.length) {
+        container.innerHTML = '<div style="color:#64748b;font-size:13px;text-align:center;padding:30px;">Операций пока нет</div>';
+        return;
+      }
+      container.innerHTML = shiftLogs.map(log => `
+        <div class="log-row">
+          <div class="log-main">
+            <div class="log-plate">${escape(log.plate)} · ${escape(log.action)}</div>
+            <div class="log-meta">${escape(new Date(log.createdAt).toLocaleString('ru-RU'))} · ${escape(log.operator)}</div>
+          </div>
+          <div class="log-sync ${log.synced ? '' : 'pending'}">${log.synced ? 'СИНХРОН.' : 'ОЖИДАЕТ'}</div>
+        </div>`).join('');
+    }
+
+    function exportShiftLogs() {
+      const header = 'Время;Номер;Операция;Оператор;Статус';
+      const rows = shiftLogs.map(log => [new Date(log.createdAt).toLocaleString('ru-RU'), log.plate, log.action, log.operator, log.synced ? 'Синхронизировано' : 'Ожидает сети']
+        .map(value => `"${String(value).replace(/"/g, '""')}"`).join(';'));
+      const blob = new Blob(['\ufeff' + [header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `kpp-shift-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    async function clearShiftLogs() {
+      if (!confirm('Очистить журнал на этом устройстве?')) return;
+      shiftLogs = [];
+      await idbClear('logs');
+      renderShiftLogs();
+    }
+
     function handleBackdropClick(e) {
       if (e.target.id === 'listModal') closeListModal();
       if (e.target.id === 'detailModal') closeDetailModal();
+      if (e.target.id === 'logModal') closeLogModal();
     }
 
     function setListFilter(filter) {
@@ -1367,6 +1678,7 @@
       const { error } = await db.from('plates').update({ pass: nextPass }).eq('plate', plate);
       if (!error) {
         CARS_DB[plate].pass = nextPass;
+        await idbPut('cars', CARS_DB[plate]);
         renderFilteredList();
         if (detectedPlate === plate) evaluatePlateMatch(plate);
       } else {
@@ -1412,6 +1724,7 @@
         pIn.value = ""; oIn.value = ""; mIn.value = "";
         closeModal();
         CARS_DB[plate] = newRecord;
+        await idbPut('cars', newRecord);
         updateStatusHeader();
         renderFilteredList();
         detectedPlate = plate;
@@ -1419,6 +1732,18 @@
       }
     }
 
+    dbReady = openLocalDb();
+    dbReady.then(loadLocalCache).catch(error => console.error('Local cache error:', error));
+    window.addEventListener('online', () => {
+      syncText.classList.remove('offline-badge');
+      syncPendingActions().then(initCloud);
+    });
+    window.addEventListener('offline', () => {
+      syncText.innerText = 'Офлайн · локальная база';
+      syncText.classList.add('offline-badge');
+    });
+    initBarcodeDetector();
+    startBarcodeScanning();
     startCamera();
     initCloud();
   </script>
