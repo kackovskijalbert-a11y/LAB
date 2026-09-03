@@ -811,8 +811,7 @@
       <span class="target-hint" id="targetHint">Наведите на номер</span>
     </div>
     <div class="freeze-controls">
-      <button id="snapScanBtn" type="button" onclick="captureAndScanManual()">📸 Сканировать номер</button>
-      <button id="resumeScanBtn" type="button" onclick="resumeScanning()" hidden>🔄 Новый сканированный кадр</button>
+      <button id="snapScanBtn" type="button" onclick="toggleScanMode()">⏸ Стоп-кадр</button>
     </div>
   </div>
 
@@ -1010,7 +1009,6 @@
     const snapshotCanvas = document.getElementById('snapshotCanvas');
     const frozenFrame = document.getElementById('frozenFrame');
     const cameraViewport = document.querySelector('.camera-viewport');
-    const resumeScanBtn = document.getElementById('resumeScanBtn');
     const snapScanBtn = document.getElementById('snapScanBtn');
     const actionBtn = document.getElementById('actionBtn');
     const target = document.getElementById('target');
@@ -1198,21 +1196,41 @@
       }, 900);
     }
 
+    function setScanButtonState(isFrozen, isAnalyzing = false) {
+      snapScanBtn.hidden = false;
+      snapScanBtn.disabled = isAnalyzing;
+      snapScanBtn.className = isAnalyzing ? 'analyzing' : '';
+      snapScanBtn.innerHTML = isAnalyzing
+        ? '⚡ Анализ кадра...'
+        : isFrozen ? '▶ Продолжить сканирование' : '⏸ Стоп-кадр';
+    }
+
+    function freezeCurrentFrame() {
+      const photoUrl = captureCurrentSnapshot();
+      if (photoUrl) frozenFrame.src = photoUrl;
+      isFrameFrozen = true;
+      v.pause();
+      cameraViewport.classList.add('is-frozen');
+      setScanButtonState(true);
+    }
+
+    function toggleScanMode() {
+      if (isFrameFrozen) {
+        resumeScanning();
+        return;
+      }
+      captureAndScanManual(false);
+    }
+
     // Ручной сканер с оптимизированным UI-индикатором и сверкой
     async function captureAndScanManual(isAutomatic = false) {
       if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
       
-      snapScanBtn.disabled = true;
-      snapScanBtn.className = "analyzing";
-      snapScanBtn.innerHTML = "⚡ Анализ кадра...";
+      setScanButtonState(false, true);
 
       try {
         isOcrBusy = true;
-        
-        const photoUrl = captureCurrentSnapshot();
-        if (photoUrl) {
-          frozenFrame.src = photoUrl;
-        }
+        if (!isAutomatic) freezeCurrentFrame();
 
         const vW = v.videoWidth;
         const vH = v.videoHeight;
@@ -1268,15 +1286,16 @@
           isFrameFrozen = true;
           v.pause();
           cameraViewport.classList.add('is-frozen');
-          snapScanBtn.hidden = true;
-          resumeScanBtn.hidden = false;
+          setScanButtonState(true);
           targetHint.innerText = 'Номер успешно распознан';
 
           evaluatePlateMatch(plate);
         } else {
-          snapScanBtn.className = "";
-          snapScanBtn.disabled = false;
-          snapScanBtn.innerHTML = "📸 Сканировать номер";
+          if (isAutomatic) setScanButtonState(false);
+          else {
+            setScanButtonState(true);
+            targetHint.innerText = 'Кадр остановлен: номер не найден';
+          }
           if (!isAutomatic) {
             alert("Номер не удалось четко распознать. Выровняйте номер по центру рамки и повторите.");
           }
@@ -1284,9 +1303,8 @@
 
       } catch (err) {
         console.error("Manual scan error:", err);
-        snapScanBtn.className = "";
-        snapScanBtn.disabled = false;
-        snapScanBtn.innerHTML = "📸 Сканировать номер";
+        if (isAutomatic) setScanButtonState(false);
+        else setScanButtonState(true);
       } finally {
         isOcrBusy = false;
       }
@@ -1296,13 +1314,9 @@
       isFrameFrozen = false;
       frozenFrame.removeAttribute('src');
       cameraViewport.classList.remove('is-frozen');
-      resumeScanBtn.hidden = true;
       vipOverlayBadge.style.display = 'none';
       
-      snapScanBtn.hidden = false;
-      snapScanBtn.disabled = false;
-      snapScanBtn.className = "";
-      snapScanBtn.innerHTML = "📸 Сканировать номер";
+      setScanButtonState(false);
 
       resetRecognitionState();
       v.play().catch(err => console.error('Camera resume error:', err));
@@ -1327,8 +1341,7 @@
           isFrameFrozen = true;
           v.pause();
           cameraViewport.classList.add('is-frozen');
-          snapScanBtn.hidden = true;
-          resumeScanBtn.hidden = false;
+          setScanButtonState(true);
           targetHint.innerText = 'Пропуск распознан';
           evaluatePlateMatch(plate);
         }
@@ -1512,8 +1525,7 @@
       detailsBox.style.display = "block";
       const car = CARS_DB[plate];
 
-      snapScanBtn.className = "success";
-      snapScanBtn.innerHTML = "✔ Успешно распознано";
+      setScanButtonState(isFrameFrozen);
 
       if (car && car.pass) {
         ownerView.innerText = car.name || "Без имени";
