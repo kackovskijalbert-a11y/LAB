@@ -1185,17 +1185,21 @@
         await tesseractWorker.setParameters({
           tessedit_char_whitelist: '0123456789АВЕКМНОРСТУХABEKMHOPCTYX'
         });
+        startContinuousScanning();
       } catch (e) {
         console.error("Worker error:", e);
       }
     }
 
     function startContinuousScanning() {
-      // Отключено в пользу ручного сканирования по кнопке для экономии ресурсов
+      setInterval(async () => {
+        if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
+        await captureAndScanManual(true);
+      }, 900);
     }
 
     // Ручной сканер с оптимизированным UI-индикатором и сверкой
-    async function captureAndScanManual() {
+    async function captureAndScanManual(isAutomatic = false) {
       if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
       
       snapScanBtn.disabled = true;
@@ -1273,7 +1277,9 @@
           snapScanBtn.className = "";
           snapScanBtn.disabled = false;
           snapScanBtn.innerHTML = "📸 Сканировать номер";
-          alert("Номер не удалось четко распознать. Выровняйте номер по центру рамки и повторите.");
+          if (!isAutomatic) {
+            alert("Номер не удалось четко распознать. Выровняйте номер по центру рамки и повторите.");
+          }
         }
 
       } catch (err) {
