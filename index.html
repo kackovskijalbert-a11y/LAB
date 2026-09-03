@@ -80,14 +80,15 @@
       display: flex;
       justify-content: center;
       pointer-events: none;
+      gap: 10px;
     }
     .freeze-controls button {
       background: rgba(15, 23, 42, 0.9);
       color: #f8fafc;
       border: 1px solid rgba(255, 255, 255, 0.18);
       border-radius: 12px;
-      padding: 11px 16px;
-      font-size: 13px;
+      padding: 12px 20px;
+      font-size: 14px;
       font-weight: 700;
       cursor: pointer;
       pointer-events: auto;
@@ -254,10 +255,11 @@
     .log-toolbar { display: flex; gap: 8px; }
     .log-toolbar input { min-width: 0; flex: 1.2; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: #fff; padding: 9px 10px; border-radius: 10px; font-size: 12px; }
     .log-toolbar button { flex: 1; }
-    .log-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 12px; }
-    .log-main { min-width: 0; }
+    .log-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 12px; align-items: center; }
+    .log-main { min-width: 0; display: flex; align-items: center; gap: 12px; }
+    .log-thumb { width: 48px; height: 32px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; flex-shrink: 0; }
     .log-plate { font-weight: 800; color: #fff; }
-    .log-meta { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+    .log-meta { color: #94a3b8; font-size: 12px; margin-top: 2px; }
     .log-sync { flex-shrink: 0; color: #4ade80; font-size: 11px; font-weight: 700; }
     .log-sync.pending { color: #fbbf24; }
     @keyframes slideUp {
@@ -657,7 +659,8 @@
       <span class="target-hint" id="targetHint">Наведите на номер</span>
     </div>
     <div class="freeze-controls">
-      <button id="resumeScanBtn" type="button" onclick="resumeScanning()" hidden>Продолжить сканирование</button>
+      <button id="snapScanBtn" type="button" onclick="captureAndScanManual()" style="background: linear-gradient(135deg, #0284c7, #38bdf8); color: #fff; border: none;">📸 Сканировать</button>
+      <button id="resumeScanBtn" type="button" onclick="resumeScanning()" hidden>Продолжить</button>
     </div>
   </div>
 
@@ -771,6 +774,17 @@
     </div>
   </div>
 
+  <!-- Модальное окно просмотра фото/доказательства -->
+  <div class="modal-overlay" id="photoModal" style="align-items: center; justify-content: center; z-index: 130;" onclick="closePhotoModal()">
+    <div style="background: #1e293b; padding: 16px; border-radius: 20px; max-width: 90%; max-height: 90%; display: flex; flex-direction: column; gap: 10px;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-weight: 700; font-size: 15px;" id="photoModalTitle">Фотофиксация</span>
+        <button class="btn-close-circle" onclick="closePhotoModal()">✕</button>
+      </div>
+      <img id="photoModalImg" src="" alt="Фотофиксация прохода" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+    </div>
+  </div>
+
   <div class="modal-overlay" id="logModal" onclick="handleBackdropClick(event)">
     <div class="sheet-modal log-modal">
       <div class="sheet-handle"></div>
@@ -814,6 +828,17 @@
     let operatorName = localStorage.getItem('kpp_operator') || 'Оператор КПП';
 
     const PLATE_REGEX = /^(?:[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}|\d{4}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}|[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{6})$/;
+    const VALID_REGIONS = new Set([
+      '01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','17','18','19','20',
+      '21','22','23','24','25','26','27','28','29','30','31','32','33','34','35','36','37','38','39','40',
+      '41','42','43','44','45','46','47','48','49','50','51','52','53','54','55','56','57','58','59','60',
+      '61','62','63','64','65','66','67','68','69','70','71','72','73','74','75','76','77','78','79','80',
+      '81','82','83','84','85','86','87','88','89','90','91','92','93','94','95','96','97','98','99','102',
+      '113','116','121','123','124','125','126','134','138','142','150','152','154','156','161','163','164',
+      '173','174','177','178','180','186','190','196','197','199','716','750','777','790','797','799','82',
+      '97','761','763'
+    ]);
+
     const CHAR_CONVERT = {
       'A':'А', 'B':'В', 'E':'Е', 'K':'К', 'M':'М', 'H':'Н',
       'O':'О', 'P':'Р', 'C':'С', 'T':'Т', 'Y':'У', 'X':'Х'
@@ -846,7 +871,7 @@
     const syncText = document.getElementById('syncText');
     const dot = document.getElementById('dot');
 
-    // Синтезатор звука (Web Audio API) для оповещений без внешних файлов
+    // Синтезатор звука (Web Audio API)
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playBeep(type) {
       if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -856,8 +881,8 @@
       gain.connect(audioCtx.destination);
 
       if (type === 'success') {
-        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08); // A5
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.08);
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
         osc.start();
@@ -875,8 +900,8 @@
 
     function openLocalDb() {
       return new Promise((resolve, reject) => {
-        const request = indexedDB.open('kpp-offline-cache', 1);
-        request.onupgradeneeded = () => {
+        const request = indexedDB.open('kpp-offline-cache', 2);
+        request.onupgradeneeded = (e) => {
           const database = request.result;
           if (!database.objectStoreNames.contains('cars')) database.createObjectStore('cars', { keyPath: 'plate' });
           if (!database.objectStoreNames.contains('actions')) database.createObjectStore('actions', { keyPath: 'id' });
@@ -961,13 +986,13 @@
       await initCloud();
     }
 
-    async function recordVehicleAction(plate, nextInside, expectedInside) {
+    async function recordVehicleAction(plate, nextInside, expectedInside, photoDataUrl = null) {
       const now = new Date().toISOString();
-      const log = { id: crypto.randomUUID(), logId: crypto.randomUUID(), plate, action: nextInside ? 'Въезд' : 'Выезд', operator: operatorName, createdAt: now, synced: false };
+      const log = { id: crypto.randomUUID(), logId: crypto.randomUUID(), plate, action: nextInside ? 'Въезд' : 'Выезд', operator: operatorName, createdAt: now, synced: false, photo: photoDataUrl };
       log.id = log.logId;
       const action = { id: crypto.randomUUID(), logId: log.logId, plate, expectedInside, patch: nextInside ? { is_inside: true, entered_at: now } : { is_inside: false, left_at: now } };
       const car = CARS_DB[plate];
-      Object.assign(car, action.patch);
+      if (car) Object.assign(car, action.patch);
       shiftLogs.unshift(log);
       await idbPut('logs', log);
       await queueAction(action);
@@ -996,38 +1021,108 @@
         await tesseractWorker.setParameters({
           tessedit_char_whitelist: '0123456789АВЕКМНОРСТУХABEKMHOPCTYX'
         });
-        startContinuousScanning();
       } catch (e) {
         console.error("Worker error:", e);
       }
     }
 
     function startContinuousScanning() {
-      setInterval(async () => {
-        if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
-        await scanFrame();
-      }, 450);
-    }
-    function startBarcodeScanning() {
-      setInterval(async () => {
-        if (isFrameFrozen || barcodeScanBusy || !v.videoWidth) return;
-        await scanBarcode();
-      }, 250);
+      // Отключено: сканирование происходит только по нажатию кнопки
     }
 
-    function triggerFreezeFrame() {
-      if (isFrameFrozen || !v.videoWidth || !v.videoHeight) return;
+    // Ручной запуск распознавания по нажатию кнопки
+    async function captureAndScanManual() {
+      if (isFrameFrozen || isOcrBusy || !v.videoWidth || !tesseractWorker) return;
+      
+      const snapBtn = document.getElementById('snapScanBtn');
+      snapBtn.disabled = true;
+      snapBtn.innerText = "Распознавание...";
 
-      snapshotCanvas.width = v.videoWidth;
-      snapshotCanvas.height = v.videoHeight;
-      const snapshotContext = snapshotCanvas.getContext('2d');
-      snapshotContext.drawImage(v, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
-      frozenFrame.src = snapshotCanvas.toDataURL('image/jpeg', 0.9);
-      isFrameFrozen = true;
-      v.pause();
-      cameraViewport.classList.add('is-frozen');
-      resumeScanBtn.hidden = false;
-      targetHint.innerText = 'Кадр зафиксирован';
+      try {
+        isOcrBusy = true;
+        
+        // 1. Делаем мгновенный стоп-кадр для отображения
+        const photoUrl = captureCurrentSnapshot();
+        if (photoUrl) {
+          frozenFrame.src = photoUrl;
+        }
+
+        // 2. Обрабатываем кадр (кроп и бинаризация)
+        const vW = v.videoWidth;
+        const vH = v.videoHeight;
+        const cropW = Math.floor(vW * 0.85);
+        const cropH = Math.floor(cropW / 4.6);
+        const cropX = Math.floor((vW - cropW) / 2);
+        const cropY = Math.floor((vH - cropH) / 2);
+
+        c.width = cropW;
+        c.height = cropH;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+        const imgData = ctx.getImageData(0, 0, cropW, cropH);
+        const d = imgData.data;
+        let histogram = new Array(256).fill(0);
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+          d[i] = gray; d[i+1] = gray; d[i+2] = gray;
+          histogram[gray]++;
+        }
+
+        let total = d.length / 4, sum = 0;
+        for (let t = 0; t < 256; t++) sum += t * histogram[t];
+        let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 120;
+
+        for (let t = 0; t < 256; t++) {
+          wB += histogram[t];
+          if (wB === 0) continue;
+          wF = total - wB;
+          if (wF === 0) break;
+          sumB += t * histogram[t];
+          let mB = sumB / wB;
+          let mF = (sum - sumB) / wF;
+          let varBetween = wB * wF * (mB - mF) * (mB - mF);
+          if (varBetween > varMax) {
+            varMax = varBetween;
+            threshold = t;
+          }
+        }
+
+        for (let i = 0; i < d.length; i += 4) {
+          const val = d[i] > threshold ? 255 : 0;
+          d[i] = d[i+1] = d[i+2] = val;
+        }
+        ctx.putImageData(imgData, 0, 0);
+
+        // 3. Распознаем текст через Tesseract
+        const { data: { text } } = await tesseractWorker.recognize(c);
+        const plate = resolveOcrPlate(text);
+
+        if (plate) {
+          detectedPlate = plate;
+          
+          // 4. Фиксируем кадр окончательно и проверяем по базе
+          isFrameFrozen = true;
+          v.pause();
+          cameraViewport.classList.add('is-frozen');
+          snapBtn.hidden = true;
+          resumeScanBtn.hidden = false;
+          targetHint.innerText = 'Номер успешно распознан';
+
+          evaluatePlateMatch(plate);
+        } else {
+          alert("Номер не удалось четко распознать. Выровняйте номер в рамке и повторите.");
+          snapBtn.disabled = false;
+          snapBtn.innerText = "📸 Сканировать";
+        }
+
+      } catch (err) {
+        console.error("Manual scan error:", err);
+        snapBtn.disabled = false;
+        snapBtn.innerText = "📸 Сканировать";
+      } finally {
+        isOcrBusy = false;
+      }
     }
 
     function resumeScanning() {
@@ -1035,8 +1130,30 @@
       frozenFrame.removeAttribute('src');
       cameraViewport.classList.remove('is-frozen');
       resumeScanBtn.hidden = true;
+      
+      const snapBtn = document.getElementById('snapScanBtn');
+      snapBtn.hidden = false;
+      snapBtn.disabled = false;
+      snapBtn.innerText = "📸 Сканировать";
+
       resetRecognitionState();
       v.play().catch(err => console.error('Camera resume error:', err));
+    }
+
+    function startBarcodeScanning() {
+      setInterval(async () => {
+        if (isFrameFrozen || barcodeScanBusy || !v.videoWidth) return;
+        await scanBarcode();
+      }, 300);
+    }
+
+    function captureCurrentSnapshot() {
+      if (!v.videoWidth || !v.videoHeight) return null;
+      snapshotCanvas.width = v.videoWidth;
+      snapshotCanvas.height = v.videoHeight;
+      const ctx = snapshotCanvas.getContext('2d');
+      ctx.drawImage(v, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+      return snapshotCanvas.toDataURL('image/jpeg', 0.85);
     }
 
     async function toggleTorch() {
@@ -1128,6 +1245,14 @@
       return (raw || '').toString().replace(/[^А-ЯA-Z0-9]/g, '').toUpperCase().split('').map(ch => CHAR_CONVERT[ch] || ch).join('');
     }
 
+    function isValidRussianRegion(plateStr) {
+      const match2 = plateStr.match(/\d{2}$/);
+      const match3 = plateStr.match(/\d{3}$/);
+      if (match3 && VALID_REGIONS.has(match3[0])) return true;
+      if (match2 && VALID_REGIONS.has(match2[0])) return true;
+      return false;
+    }
+
     function resolveOcrPlate(rawText) {
       const cleaned = (rawText || '').toString().toUpperCase().replace(/[^А-ЯA-Z0-9]/g, '');
       const candidates = cleaned.match(/[АВЕКМНОРСТУХABEKMHOPCTYX0-9]{8,9}/g) || [];
@@ -1168,85 +1293,17 @@
           }
         }
 
-        const matchingVariant = variants.map(sanitizePlate).find(plate => CARS_DB[plate]);
+        const validVariants = variants.map(sanitizePlate).filter(plate => PLATE_REGEX.test(plate) && isValidRussianRegion(plate));
+        const matchingVariant = validVariants.find(plate => CARS_DB[plate]);
         if (matchingVariant) return matchingVariant;
 
+        if (validVariants.length > 0) return validVariants[0];
+
         const formatted = sanitizePlate(candidate);
-        if (PLATE_REGEX.test(formatted)) return formatted;
+        if (PLATE_REGEX.test(formatted) && isValidRussianRegion(formatted)) return formatted;
       }
 
       return null;
-    }
-
-    async function scanFrame() {
-      try {
-        isOcrBusy = true;
-      const vW = v.videoWidth;
-      const vH = v.videoHeight;
-      const cropW = Math.floor(vW * 0.85);
-      const cropH = Math.floor(cropW / 4.6);
-      const cropX = Math.floor((vW - cropW) / 2);
-      const cropY = Math.floor((vH - cropH) / 2);
-
-      c.width = cropW;
-      c.height = cropH;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-      const imgData = ctx.getImageData(0, 0, cropW, cropH);
-      const d = imgData.data;
-      let histogram = new Array(256).fill(0);
-      for (let i = 0; i < d.length; i += 4) {
-        const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-        d[i] = gray;
-        histogram[gray]++;
-      }
-
-      let total = d.length / 4, sum = 0;
-      for (let t = 0; t < 256; t++) sum += t * histogram[t];
-      let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 120;
-
-      for (let t = 0; t < 256; t++) {
-        wB += histogram[t];
-        if (wB === 0) continue;
-        wF = total - wB;
-        if (wF === 0) break;
-        sumB += t * histogram[t];
-        let mB = sumB / wB;
-        let mF = (sum - sumB) / wF;
-        let varBetween = wB * wF * (mB - mF) * (mB - mF);
-        if (varBetween > varMax) {
-          varMax = varBetween;
-          threshold = t;
-        }
-      }
-
-      for (let i = 0; i < d.length; i += 4) {
-        const val = d[i] > threshold ? 255 : 0;
-        d[i] = d[i+1] = d[i+2] = val;
-      }
-      ctx.putImageData(imgData, 0, 0);
-      } catch (err) {
-        console.error("Frame processing error:", err);
-        isOcrBusy = false;
-        return;
-      }
-
-      try {
-        const { data: { text } } = await tesseractWorker.recognize(c);
-        const plate = resolveOcrPlate(text);
-
-        if (plate) {
-          if (plate !== detectedPlate) {
-            detectedPlate = plate;
-            evaluatePlateMatch(plate);
-            triggerFreezeFrame();
-          }
-        }
-      } catch (err) {
-      } finally {
-        isOcrBusy = false;
-      }
     }
 
     async function initBarcodeDetector() {
@@ -1269,8 +1326,13 @@
         const plate = resolveOcrPlate(value);
         if (plate && plate !== detectedPlate) {
           detectedPlate = plate;
+          isFrameFrozen = true;
+          v.pause();
+          cameraViewport.classList.add('is-frozen');
+          document.getElementById('snapScanBtn').hidden = true;
+          resumeScanBtn.hidden = false;
+          targetHint.innerText = 'Пропуск распознан';
           evaluatePlateMatch(plate);
-          triggerFreezeFrame();
         }
       } catch (err) {
         console.warn('Barcode scan error:', err);
@@ -1349,11 +1411,20 @@
       actionBtn.disabled = true;
       actionBtn.innerText = "ЗАПИСЬ...";
 
-      const now = new Date().toISOString();
       const nextInside = !car.is_inside;
+      const snapshot = captureCurrentSnapshot();
       
-      await recordVehicleAction(detectedPlate, nextInside, car.is_inside);
+      await recordVehicleAction(detectedPlate, nextInside, car.is_inside, snapshot);
       actionBtn.disabled = false;
+      setTimeout(() => {
+        if (isFrameFrozen) resumeScanning();
+      }, 3500);
+    }
+
+    async function quickExitAction(plate) {
+      const car = CARS_DB[plate];
+      if (!car || !car.is_inside) return;
+      await recordVehicleAction(plate, false, true, null);
     }
 
     async function deleteCar(plate) {
@@ -1372,7 +1443,6 @@
       }
     }
 
-    // ДЕТАЛЬНАЯ КАРТОЧКА
     function openDetailModal(plate) {
       const car = CARS_DB[plate];
       if (!car) return;
@@ -1436,10 +1506,8 @@
       const car = CARS_DB[selectedDetailPlate];
       if (!car) return;
 
-      const now = new Date().toISOString();
       const nextInside = !car.is_inside;
-      
-      await recordVehicleAction(selectedDetailPlate, nextInside, car.is_inside);
+      await recordVehicleAction(selectedDetailPlate, nextInside, car.is_inside, null);
       renderDetailModal(CARS_DB[selectedDetailPlate]);
     }
 
@@ -1456,7 +1524,17 @@
       await deleteCar(selectedDetailPlate);
     }
 
-    // ИМПОРТ EXCEL
+    function openPhotoModal(url, title) {
+      if (!url) return;
+      document.getElementById('photoModalImg').src = url;
+      document.getElementById('photoModalTitle').innerText = title || 'Фотофиксация';
+      document.getElementById('photoModal').classList.add('open');
+    }
+
+    function closePhotoModal() {
+      document.getElementById('photoModal').classList.remove('open');
+    }
+
     async function handleExcelUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -1477,7 +1555,6 @@
         }
 
         const formattedRecords = [];
-        const PLATE_REGEX_CHECK = PLATE_REGEX;
 
         rawRows.forEach(row => {
           if (!Array.isArray(row) || row.length === 0) return;
@@ -1487,7 +1564,7 @@
 
           row.forEach((cellVal, idx) => {
             const sanitized = sanitizePlate(String(cellVal));
-            if (PLATE_REGEX_CHECK.test(sanitized) && !foundPlate) {
+            if (PLATE_REGEX.test(sanitized) && isValidRussianRegion(sanitized) && !foundPlate) {
               foundPlate = sanitized;
               plateColIndex = idx;
             }
@@ -1601,8 +1678,11 @@
       container.innerHTML = shiftLogs.map(log => `
         <div class="log-row">
           <div class="log-main">
-            <div class="log-plate">${escape(log.plate)} · ${escape(log.action)}</div>
-            <div class="log-meta">${escape(new Date(log.createdAt).toLocaleString('ru-RU'))} · ${escape(log.operator)}</div>
+            ${log.photo ? `<img class="log-thumb" src="${escape(log.photo)}" alt="Фото" onclick="openPhotoModal('${escape(log.photo)}', '${escape(log.plate)} · ${escape(log.action)}')">` : ''}
+            <div>
+              <div class="log-plate">${escape(log.plate)} · ${escape(log.action)}</div>
+              <div class="log-meta">${escape(new Date(log.createdAt).toLocaleString('ru-RU'))} · ${escape(log.operator)}</div>
+            </div>
           </div>
           <div class="log-sync ${log.synced ? '' : 'pending'}">${log.synced ? 'СИНХРОН.' : 'ОЖИДАЕТ'}</div>
         </div>`).join('');
@@ -1702,6 +1782,11 @@
             ` : ''}
           </div>
           <div class="car-actions-col" onclick="event.stopPropagation()">
+            ${item.is_inside ? `
+              <button class="btn-status-pill active" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);" onclick="quickExitAction('${escapeJsString(item.plate)}')">
+                Выезд
+              </button>
+            ` : ''}
             <button class="btn-status-pill ${item.pass ? 'active' : 'inactive'}" onclick="togglePassStatus('${escapeJsString(item.plate)}', ${item.pass})">
               ${item.pass ? 'Допуск' : 'Блок'}
             </button>
@@ -1736,8 +1821,8 @@
       const saveBtn = document.getElementById('saveBtn');
 
       const plate = sanitizePlate(pIn.value);
-      if (!PLATE_REGEX.test(plate)) {
-        alert("Неверный формат номера. Пример: С640УК69");
+      if (!PLATE_REGEX.test(plate) || !isValidRussianRegion(plate)) {
+        alert("Неверный формат номера или код региона РФ. Пример: С640УК69");
         return;
       }
 
