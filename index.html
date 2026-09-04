@@ -1241,15 +1241,24 @@
         const vW = v.videoWidth;
         const vH = v.videoHeight;
         const scale = Math.min(1, 1280 / vW);
-        const cropW = Math.max(1, Math.floor(vW * scale));
-        const cropH = Math.max(1, Math.floor(vH * scale));
+        const frameW = Math.max(1, Math.floor(vW * scale));
+        const frameH = Math.max(1, Math.floor(vH * scale));
+        const cropW = Math.max(1, Math.floor(frameW * 0.92));
+        const cropH = Math.max(1, Math.floor(frameH * 0.48));
+        const cropX = Math.floor((frameW - cropW) / 2);
+        const cropY = Math.floor((frameH - cropH) / 2);
 
+        c.width = frameW;
+        c.height = frameH;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(v, 0, 0, vW, vH, 0, 0, frameW, frameH);
+        const crop = ctx.getImageData(cropX, cropY, cropW, cropH);
         c.width = cropW;
         c.height = cropH;
-        const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(v, 0, 0, vW, vH, 0, 0, cropW, cropH);
+        const cropContext = c.getContext('2d', { willReadFrequently: true });
+        cropContext.putImageData(crop, 0, 0);
 
-        const imgData = ctx.getImageData(0, 0, cropW, cropH);
+        const imgData = cropContext.getImageData(0, 0, cropW, cropH);
         const d = imgData.data;
         let histogram = new Array(256).fill(0);
         for (let i = 0; i < d.length; i += 4) {
